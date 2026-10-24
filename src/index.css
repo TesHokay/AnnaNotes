@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Pastel pink */
+    --background: 340 60% 97%;
+    --foreground: 335 20% 14%;
+    --surface: 0 0% 100%;
+    --canvas: 340 35% 92%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 335 20% 14%;
+    --primary: 340 68% 64%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 340 45% 94%;
+    --secondary-foreground: 335 20% 18%;
+    --muted: 340 40% 94%;
+    --muted-foreground: 335 10% 46%;
+    --accent: 340 85% 94%;
+    --accent-foreground: 340 55% 42%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 340 35% 89%;
+    --input: 340 30% 86%;
+    --ring: 340 68% 64%;
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: 335 15% 7%;
+    --foreground: 340 30% 95%;
+    --surface: 335 13% 12%;
+    --canvas: 335 11% 15%;
+    --popover: 335 13% 13%;
+    --popover-foreground: 340 30% 95%;
+    --primary: 340 75% 72%;
+    --primary-foreground: 335 30% 12%;
+    --secondary: 335 11% 18%;
+    --secondary-foreground: 340 30% 95%;
+    --muted: 335 10% 17%;
+    --muted-foreground: 335 10% 66%;
+    --accent: 340 35% 21%;
+    --accent-foreground: 340 90% 84%;
+    --destructive: 0 72% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 335 10% 22%;
+    --input: 335 10% 26%;
+    --ring: 340 75% 72%;
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    /* No accidental text selection / callouts while using the pencil */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable='true'] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  button {
+    touch-action: manipulation;
+  }
+}
+
+@layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
+  }
+  .glass {
+    @apply bg-surface/80 backdrop-blur-xl;
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+  .drawing-surface {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}

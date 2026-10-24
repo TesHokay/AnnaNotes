@@ -1,0 +1,14 @@
+node_modules
+dist
+dev-dist
+coverage
+test-results
+playwright-report
+*.local
+.DS_Store
+public/pdfjs
+annanotes-dist.zip
+annanotes-dist/
+*.tmp.mjs
+.wrangler
+.env*

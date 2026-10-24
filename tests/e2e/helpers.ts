@@ -52,5 +52,7 @@ export async function drawStroke(page: Page, offsetY = 0): Promise<void> {
 }
 
 export async function waitSaved(page: Page): Promise<void> {
+  // Let React render the "pending" state first; otherwise the stale "saved" label passes instantly.
+  await page.waitForTimeout(100);
   await expect(page.getByTestId('save-status')).toHaveAttribute('data-status', /saved|idle/, { timeout: 10_000 });
 }

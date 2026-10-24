@@ -52,6 +52,8 @@ export function CanvasHost() {
       },
     });
     session.engine = engine;
+    // Debug handle for development only (inspect perf/state from the console or automation).
+    if (import.meta.env.DEV) (window as unknown as { __engine?: DrawingEngine }).__engine = engine;
     engine.setCanvasColor(readCanvasColor());
     const pages = useEditor.getState().pages;
     if (pages.length) engine.setPages(pages);

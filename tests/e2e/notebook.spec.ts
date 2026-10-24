@@ -50,6 +50,8 @@ test.describe('notebooks', () => {
     await page.getByTestId('tool-eraser').click(); // open options
     await page.getByRole('radio', { name: 'Штрих', exact: true }).click();
     await page.keyboard.press('Escape');
+    // The popover overlaps the stroke while its close animation runs.
+    await expect(page.getByRole('radio', { name: 'Штрих', exact: true })).toBeHidden();
     const box = (await page.getByTestId('drawing-surface').boundingBox())!;
     const y = box.y + Math.min(box.height * 0.3, 260) + 9;
     await page.mouse.move(box.x + box.width * 0.35 + 100, y - 40);

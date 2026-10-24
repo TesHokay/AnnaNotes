@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Onboarding } from '@/components/app/Onboarding';
 import { Toaster } from '@/components/app/Toaster';
+import { ImportDialog } from '@/features/import/ImportDialog';
 import { getDB } from '@/db/db';
 import { toStorageError } from '@/db/errors';
 import { LibraryView } from '@/features/library/LibraryView';
@@ -81,6 +82,7 @@ export function App() {
       ) : (
         <LibraryView />
       )}
+      <ImportDialog />
       <Onboarding />
       <Toaster />
     </>

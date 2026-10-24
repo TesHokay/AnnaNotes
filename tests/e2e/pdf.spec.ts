@@ -20,8 +20,9 @@ test('import PDF → annotate → export annotated PDF', async ({ page }) => {
 
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('new-menu').click();
-  await page.getByRole('menuitem', { name: 'Импорт PDF или изображения' }).click();
+  await page.getByRole('menuitem', { name: 'Импорт PDF, изображений, ZIP' }).click();
   await (await chooser).setFiles({ name: 'lecture.pdf', mimeType: 'application/pdf', buffer: pdf });
+  await page.getByRole('button', { name: 'Готово' }).click();
 
   await expect(page.getByTestId('notebook-item')).toHaveCount(1);
   expect(await countStore(page, 'pages')).toBe(3);

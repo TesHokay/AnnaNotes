@@ -53,7 +53,8 @@ import {
   setFavorite,
   trashNotebooks,
 } from '@/db/repo';
-import { exportNotebookAsPdf, exportNotebookBackup, importFiles, readBackupFile } from '@/features/actions';
+import { exportNotebookAsPdf, exportNotebookBackup, readBackupFile } from '@/features/actions';
+import { runImport } from '@/features/import/importQueue';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { RestoreDialog } from '@/features/settings/RestoreDialog';
 import type { ParsedBackup } from '@/backup/backup';
@@ -194,8 +195,13 @@ export function LibraryView() {
   };
 
   const doImport = async () => {
-    const files = await pickFiles('application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg', true);
-    if (files.length) await importFiles(files, currentFolderId);
+    const files = await pickFiles('application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg,.zip,application/zip,.goodnotes', true);
+    if (!files.length) return;
+    try {
+      await runImport(files, currentFolderId);
+    } catch (err) {
+      toast(errorMessage(err), { kind: 'error' });
+    }
   };
 
   const doRestore = async () => {
@@ -429,7 +435,7 @@ export function LibraryView() {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onSelect={() => void doImport()}>
-                          <Upload /> Импорт PDF или изображения
+                          <Upload /> Импорт PDF, изображений, ZIP
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => void doRestore()}>
                           <RotateCcw /> Восстановить из копии

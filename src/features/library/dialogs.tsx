@@ -148,7 +148,7 @@ export function PageSetupFields({ value, onChange }: { value: PageSetup; onChang
             <ColorSwatch key={c.value} color={c.value} label={c.label} active={value.paperColor === c.value} onClick={() => onChange({ ...value, paperColor: c.value })} />
           ))}
           <label className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full border" title="Свой цвет" style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}>
-            <input type="color" value={value.paperColor} onChange={(e) => onChange({ ...value, paperColor: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Свой цвет бумаги" />
+            <input type="color" value={value.paperColor} onChange={(e) => onChange({ ...value, paperColor: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Свой цвет бумаги" />
           </label>
         </div>
       </div>

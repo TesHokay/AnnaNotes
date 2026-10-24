@@ -133,7 +133,7 @@ export function PenOptions() {
             />
           ))}
           <label className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full border" title="Свой цвет" style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}>
-            <input type="color" value={pen.color} onChange={(e) => setPen({ color: e.target.value })} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Свой цвет" />
+            <input type="color" value={pen.color} onChange={(e) => setPen({ color: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Свой цвет" />
           </label>
         </div>
       </div>

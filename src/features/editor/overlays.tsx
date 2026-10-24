@@ -102,7 +102,7 @@ function ShapeStylePopover({ shape }: { shape: NonNullable<SelectionInfo['shape'
           Стиль
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80" onOpenAutoFocus={(ev) => ev.preventDefault()}>
+      <PopoverContent className="w-[min(22rem,calc(100vw-24px))]" onOpenAutoFocus={(ev) => ev.preventDefault()}>
         <div className="flex flex-col gap-4">
           <div>
             <Label>Обводка</Label>
@@ -128,7 +128,7 @@ function ShapeStylePopover({ shape }: { shape: NonNullable<SelectionInfo['shape'
                   <ColorSwatch key={c} color={c} active={shape.fill === c} onClick={() => e?.updateSelectedShapes({ fill: c })} label={`Заливка ${c}`} />
                 ))}
                 <label className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full border" title="Свой цвет" style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}>
-                  <input type="color" value={shape.fill ?? '#ffffff'} onChange={(ev) => e?.updateSelectedShapes({ fill: ev.target.value })} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Свой цвет заливки" />
+                  <input type="color" value={shape.fill ?? '#ffffff'} onChange={(ev) => e?.updateSelectedShapes({ fill: ev.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Свой цвет заливки" />
                 </label>
               </div>
             </div>

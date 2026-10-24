@@ -149,7 +149,7 @@ export const Toolbar = memo(function Toolbar({ compact }: { compact?: boolean })
               {tools.tool === tool && color && <span className="absolute bottom-1 h-1 w-3 rounded-full" style={{ background: color }} />}
             </button>
           </PopoverAnchor>
-          <PopoverContent className="w-80" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <PopoverContent className="w-[min(22rem,calc(100vw-24px))]" onOpenAutoFocus={(e) => e.preventDefault()}>
             <ToolOptions tool={tool} />
           </PopoverContent>
         </Popover>
@@ -198,7 +198,7 @@ function ToolOptions({ tool }: { tool: ToolKind }) {
           <ColorSwatch key={c} color={c} active={value.toLowerCase() === c.toLowerCase()} onClick={() => onPick(c)} />
         ))}
         <label className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full border" title="Свой цвет" style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}>
-          <input type="color" value={value} onChange={(e) => onPick(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Свой цвет" />
+          <input type="color" value={value} onChange={(e) => onPick(e.target.value)} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Свой цвет" />
         </label>
       </div>
     </div>
@@ -263,22 +263,22 @@ function ToolOptions({ tool }: { tool: ToolKind }) {
         { k: 'auto', icon: <Sparkles className="h-5 w-5" />, label: 'Авто' },
         { k: 'line', icon: <Minus className="h-5 w-5" />, label: 'Линия' },
         { k: 'arrow', icon: <ArrowUpRight className="h-5 w-5" />, label: 'Стрелка' },
-        { k: 'rectangle', icon: <Square className="h-5 w-5" />, label: 'Прямоуг.' },
-        { k: 'roundedRect', icon: <Square className="h-5 w-5 rounded-md" strokeWidth={2.5} />, label: 'Скругл.' },
+        { k: 'rectangle', icon: <Square className="h-5 w-5" />, label: 'Прямоугольник' },
+        { k: 'roundedRect', icon: <Square className="h-5 w-5 rounded-md" strokeWidth={2.5} />, label: 'Скруглённый' },
         { k: 'ellipse', icon: <Circle className="h-5 w-5" />, label: 'Эллипс' },
-        { k: 'triangle', icon: <Triangle className="h-5 w-5" />, label: 'Треуг.' },
-        { k: 'polygon', icon: <Hexagon className="h-5 w-5" />, label: 'Многоуг.' },
+        { k: 'triangle', icon: <Triangle className="h-5 w-5" />, label: 'Треугольник' },
+        { k: 'polygon', icon: <Hexagon className="h-5 w-5" />, label: 'Многоугольник' },
       ];
       const sh = tools.shape;
       return (
         <div className="flex flex-col gap-4">
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(84px,1fr))] gap-1.5">
             {kinds.map(({ k, icon, label }) => (
               <button
                 key={k}
                 onClick={() => update((t) => ({ ...t, shape: { ...t.shape, kind: k } }))}
                 aria-pressed={sh.kind === k}
-                className={cn('flex flex-col items-center gap-1 rounded-md py-2 text-[11px]', sh.kind === k ? 'bg-accent text-accent-foreground' : 'hover:bg-muted')}
+                className={cn('flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[11px] leading-tight [hyphens:auto] break-words', sh.kind === k ? 'bg-accent text-accent-foreground' : 'hover:bg-muted')}
               >
                 {icon}
                 {label}

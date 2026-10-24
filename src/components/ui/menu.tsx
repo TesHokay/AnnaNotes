@@ -9,7 +9,7 @@ export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
 const contentClass =
-  'z-50 min-w-[13rem] overflow-hidden rounded-md border bg-popover p-1.5 text-popover-foreground shadow-float data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
+  'z-50 min-w-[13rem] max-w-[calc(100vw-24px)] max-h-[calc(100dvh-24px)] overflow-y-auto overflow-x-hidden rounded-md border bg-popover p-1.5 text-popover-foreground shadow-float data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95';
 
 export const DropdownMenuContent = forwardRef<ElementRef<typeof DropdownMenuPrimitive.Content>, ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>>(
   ({ className, sideOffset = 6, collisionPadding = 12, ...props }, ref) => (
@@ -80,7 +80,7 @@ export const PopoverContent = forwardRef<ElementRef<typeof PopoverPrimitive.Cont
         ref={ref}
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
-        className={cn('z-50 w-72 rounded-lg border bg-popover p-4 text-popover-foreground shadow-float outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95', className)}
+        className={cn('z-50 max-h-[calc(100dvh-24px)] w-[min(18rem,calc(100vw-24px))] overflow-y-auto overflow-x-hidden rounded-lg border bg-popover p-4 text-popover-foreground shadow-float outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95', className)}
         {...props}
       />
     </PopoverPrimitive.Portal>

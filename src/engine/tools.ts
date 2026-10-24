@@ -29,7 +29,7 @@ import {
 } from './geometry';
 import type { ChangeSet } from './history';
 import { computeWidths, outlinePolygon, strokeOutline, tracePolygon, widthProfile } from './outline';
-import { normalizePressure, PressureDetector, SimulatedPressure, type PressureCalibration } from './pressure';
+import { applyCurve, linearPressure, PressureDetector, SimulatedPressure, type PenPressure, type PressureCalibration } from './pressure';
 import { drawElements, strokeFillStyle, type ImageResolver } from './renderer';
 import { isNearlyStraight, rdp, recognizeShape, shapePoints } from './shapes';
 import { drawShapeElement, hitShape, shapeFromDrag, shapeFromPolygon } from './shapeElement';
@@ -40,7 +40,7 @@ export type ToolKind = 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'shape' | 't
 
 export interface ToolConfig {
   tool: ToolKind;
-  pen: { color: string; width: number; opacity: number; style: PenStyle; stabilization: number };
+  pen: { color: string; width: number; opacity: number; style: PenStyle; stabilization: number; pressure: PenPressure; calligraphyMode: 'pressure' | 'direction' };
   highlighter: { color: string; width: number; opacity: number; snapToText: boolean };
   eraser: { mode: 'stroke' | 'partial' | 'object'; size: number };
   lasso: { mode: 'free' | 'rect' };
@@ -178,6 +178,9 @@ export function elementsInLasso(elements: readonly PageElement[], poly: readonly
 
 // ------------------------------------------------------------------ ink
 
+/** Pens whose minimum width follows the user's pressure settings (others have fixed models). */
+export const PRESSURE_STYLES: ReadonlySet<PenStyle> = new Set<PenStyle>(['ballpoint', 'ball', 'fountain', 'brush', 'pencil']);
+
 export class InkAction implements Action {
   private points: StrokePoint[] = [];
   private predicted: StrokePoint[] = [];
@@ -213,11 +216,25 @@ export class InkAction implements Action {
     return { color: c.pen.color, width: c.pen.width, opacity: c.pen.opacity, penStyle: c.pen.style };
   }
 
+  private smoothedPressure: number | null = null;
+
+  /** Pressure settings in effect for this stroke (highlighter/shapes use none). */
+  private pressureCfg(): PenPressure | null {
+    return this.mode === 'pen' ? this.ctx.config.pen.pressure : null;
+  }
+
   private toPoint(s: Sample): StrokePoint {
     this.detector.add(s.pressure);
     let pressure: number;
-    if (this.detector.hasRealPressure) {
-      pressure = normalizePressure(s.pressure, this.ctx.config.calibration);
+    const cfg = this.pressureCfg();
+    if (cfg && !cfg.enabled) {
+      pressure = 1; // sensitivity off: constant (maximum) width
+    } else if (this.detector.hasRealPressure) {
+      // Real Apple Pencil pressure: calibrate, apply the pen's curve, then smooth.
+      const curved = applyCurve(linearPressure(s.pressure, this.ctx.config.calibration), cfg?.gamma ?? 1);
+      const k = 1 - 0.85 * (cfg?.smoothing ?? 0.3);
+      this.smoothedPressure = this.smoothedPressure === null ? curved : this.smoothedPressure + (curved - this.smoothedPressure) * k;
+      pressure = this.smoothedPressure;
     } else {
       const prev = this.lastRaw;
       const dt = prev ? Math.max(1, s.t - prev.t) : 16;
@@ -292,7 +309,8 @@ export class InkAction implements Action {
       points,
       boundingBox: strokeBBox(points, st.width),
       shape,
-      simulatedPressure: shape ? undefined : !this.detector.hasRealPressure || undefined,
+      simulatedPressure: shape ? undefined : this.isSimulated() || undefined,
+      minWidthRatio: !shape && this.mode === 'pen' && this.ctx.config.pen.pressure.enabled && PRESSURE_STYLES.has(st.penStyle) ? this.ctx.config.pen.pressure.minRatio : undefined,
     });
     if (this.snapped) return this.snapped.strokes.map((pts) => make(pts, this.snapped!.kind));
     if (this.mode === 'highlighter' && this.ctx.config.highlighter.snapToText) {
@@ -311,6 +329,12 @@ export class InkAction implements Action {
       if (rec) return rec.strokes.map((pts) => make(pts, rec.kind));
     }
     return [make(this.points)];
+  }
+
+  /** Direction-based calligraphy is an explicit choice, not a silent fallback. */
+  private isSimulated(): boolean {
+    if (this.mode === 'pen' && this.ctx.config.pen.style === 'calligraphy' && this.ctx.config.pen.calligraphyMode === 'direction') return true;
+    return !this.detector.hasRealPressure;
   }
 
   /** Auto-shape tool: freehand → editable vector shape (recognised, or freeform when closed). */
@@ -369,7 +393,18 @@ export class InkAction implements Action {
     } else {
       // Same geometry pipeline as the committed stroke, so the line does not change on pen-up.
       const pts = this.predicted.length ? [...this.points, ...this.predicted] : this.points;
-      tracePolygon(path, strokeOutline({ points: pts, baseWidth: st.width, tool: this.tool, penStyle: st.penStyle, simulatedPressure: !this.detector.hasRealPressure }));
+      const pc = this.pressureCfg();
+      tracePolygon(
+        path,
+        strokeOutline({
+          points: pts,
+          baseWidth: st.width,
+          tool: this.tool,
+          penStyle: st.penStyle,
+          simulatedPressure: this.isSimulated(),
+          minWidthRatio: pc?.enabled && PRESSURE_STYLES.has(st.penStyle) ? pc.minRatio : undefined,
+        }),
+      );
     }
     ctx.fillStyle = strokeFillStyle(ctx, st.color, this.tool === 'pen' ? st.penStyle : 'ballpoint');
     ctx.fill(path);

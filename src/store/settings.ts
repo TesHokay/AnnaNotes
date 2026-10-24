@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { getDB } from '@/db/db';
 import { setSetting } from '@/db/repo';
-import { DEFAULT_CALIBRATION, type PressureCalibration } from '@/engine/pressure';
+import { DEFAULT_CALIBRATION, DEFAULT_PEN_PRESSURE, PRESSURE_PRESETS, type PenPressure, type PressureCalibration } from '@/engine/pressure';
 import type { ToolConfig } from '@/engine/tools';
 import type { PenStyle } from '@/model/types';
 import type { ThemeId } from '@/lib/theme';
@@ -15,14 +15,14 @@ export const PEN_COLORS = ['#1c1c1e', '#0a84ff', '#ff3b30', '#34c759', '#ff9500'
 export const SHAPE_FILLS = ['#fde2ec', '#f8c8dc', '#ffe8b8', '#d9f2e3', '#d8e8fb', '#e6dcfa', '#1c1c1e', '#ffffff'];
 export const HIGHLIGHTER_COLORS = ['#ffd60a', '#a4f06d', '#5ac8fa', '#ff9fd1', '#ffb340', '#c7a4ff'];
 
-export type PenParams = Pick<ToolSettings['pen'], 'width' | 'opacity' | 'stabilization'>;
+export type PenParams = Pick<ToolSettings['pen'], 'width' | 'opacity' | 'stabilization'> & { pressure?: PenPressure };
 
 /** Per-style defaults; the user's changes are remembered per style in `penMemory`. */
 export const PEN_DEFAULTS: Record<Exclude<PenStyle, 'ball'>, PenParams> = {
-  ballpoint: { width: 1.6, opacity: 1, stabilization: 0.45 },
-  fountain: { width: 2.2, opacity: 1, stabilization: 0.5 },
-  calligraphy: { width: 5.5, opacity: 1, stabilization: 0.55 },
-  brush: { width: 6, opacity: 1, stabilization: 0.35 },
+  ballpoint: { width: 1.6, opacity: 1, stabilization: 0.45, pressure: { ...DEFAULT_PEN_PRESSURE, preset: 'soft', ...PRESSURE_PRESETS.soft } },
+  fountain: { width: 2.2, opacity: 1, stabilization: 0.5, pressure: { ...DEFAULT_PEN_PRESSURE } },
+  calligraphy: { width: 5.5, opacity: 1, stabilization: 0.55, pressure: { ...DEFAULT_PEN_PRESSURE, preset: 'strong', ...PRESSURE_PRESETS.strong } },
+  brush: { width: 6, opacity: 1, stabilization: 0.35, pressure: { ...DEFAULT_PEN_PRESSURE, preset: 'strong', ...PRESSURE_PRESETS.strong } },
   fineliner: { width: 1, opacity: 1, stabilization: 0.4 },
   pencil: { width: 1.6, opacity: 0.9, stabilization: 0.35 },
   marker: { width: 5, opacity: 0.9, stabilization: 0.3 },
@@ -45,7 +45,7 @@ export const STABILIZATION_LEVELS = [
 
 export const DEFAULT_TOOLS: ToolSettings = {
   tool: 'pen',
-  pen: { color: '#1c1c1e', width: 2.2, opacity: 1, style: 'fountain', stabilization: 0.5 },
+  pen: { color: '#1c1c1e', width: 2.2, opacity: 1, style: 'fountain', stabilization: 0.5, pressure: { ...DEFAULT_PEN_PRESSURE }, calligraphyMode: 'pressure' },
   highlighter: { color: '#ffd60a', width: 14, opacity: 0.38, snapToText: true },
   eraser: { mode: 'partial', size: 24 },
   lasso: { mode: 'free' },
@@ -164,9 +164,9 @@ export const useSettings = create<SettingsState & SettingsActions>((set, get) =>
   selectPenStyle(style, params) {
     const { tools, penMemory } = get();
     const cur = tools.pen;
-    const memory = { ...penMemory, [cur.style]: { width: cur.width, opacity: cur.opacity, stabilization: cur.stabilization } };
+    const memory = { ...penMemory, [cur.style]: { width: cur.width, opacity: cur.opacity, stabilization: cur.stabilization, pressure: cur.pressure } };
     const next = params ?? memory[style] ?? PEN_DEFAULTS[style];
-    const updated: ToolSettings = { ...tools, tool: 'pen', pen: { ...cur, style, ...next } };
+    const updated: ToolSettings = { ...tools, tool: 'pen', pen: { ...cur, style, ...next, pressure: { ...DEFAULT_PEN_PRESSURE, ...(next.pressure ?? PEN_DEFAULTS[style].pressure) } } };
     set({ tools: updated, penMemory: memory });
     persist('tools', updated);
     persist('penMemory', memory);
@@ -177,7 +177,7 @@ function mergeTools(saved: Partial<ToolSettings>): ToolSettings {
   const d = DEFAULT_TOOLS;
   return {
     tool: saved.tool ?? d.tool,
-    pen: { ...d.pen, ...saved.pen, style: saved.pen?.style === 'ball' ? 'ballpoint' : (saved.pen?.style ?? d.pen.style) },
+    pen: { ...d.pen, ...saved.pen, pressure: { ...d.pen.pressure, ...saved.pen?.pressure }, style: saved.pen?.style === 'ball' ? 'ballpoint' : (saved.pen?.style ?? d.pen.style) },
     highlighter: { ...d.highlighter, ...saved.highlighter },
     eraser: { ...d.eraser, ...saved.eraser },
     lasso: { ...d.lasso, ...saved.lasso },

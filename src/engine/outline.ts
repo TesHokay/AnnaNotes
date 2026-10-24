@@ -175,8 +175,9 @@ export function outlinePolygon(points: readonly Vec[], widths: readonly number[]
   return out;
 }
 
-export function strokeOutline(stroke: Pick<StrokeElement, 'points' | 'baseWidth' | 'tool' | 'penStyle' | 'simulatedPressure'>): Vec[] {
-  const profile = widthProfile(stroke.tool, stroke.penStyle);
+export function strokeOutline(stroke: Pick<StrokeElement, 'points' | 'baseWidth' | 'tool' | 'penStyle' | 'simulatedPressure' | 'minWidthRatio'>): Vec[] {
+  const base = widthProfile(stroke.tool, stroke.penStyle);
+  const profile = stroke.minWidthRatio !== undefined && base.direction === 'none' ? { ...base, minRatio: stroke.minWidthRatio } : base;
   const pts = renderPoints(stroke, profile);
   const widths = computeWidths(pts, stroke.baseWidth, profile, stroke.simulatedPressure === true);
   return outlinePolygon(pts, widths);

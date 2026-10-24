@@ -110,6 +110,8 @@ export interface StrokeElement extends ElementBase {
   shape?: ShapeKind;
   /** The device reported no real pressure; widths come from speed/direction simulation. */
   simulatedPressure?: boolean;
+  /** User's minimum width (fraction of baseWidth) at the time of writing; overrides the pen default. */
+  minWidthRatio?: number;
 }
 
 export type TextAlign = 'left' | 'center' | 'right';

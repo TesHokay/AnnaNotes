@@ -20,6 +20,38 @@ export interface PressureCalibration {
 
 export const DEFAULT_CALIBRATION: PressureCalibration = { sensitivity: 0.5, floor: 0.02, ceiling: 0.75 };
 
+/** Per-pen pressure response. */
+export interface PenPressure {
+  /** false = constant width (pressure ignored). */
+  enabled: boolean;
+  preset: 'soft' | 'balanced' | 'strong' | 'custom';
+  /** Response curve exponent: <1 light touch already gives width, >1 needs force. */
+  gamma: number;
+  /** Width at zero pressure as a fraction of the maximum width. */
+  minRatio: number;
+  /** 0..1 extra smoothing of the pressure signal. */
+  smoothing: number;
+}
+
+export const PRESSURE_PRESETS: Record<'soft' | 'balanced' | 'strong', Pick<PenPressure, 'gamma' | 'minRatio'>> = {
+  soft: { gamma: 0.6, minRatio: 0.45 },
+  balanced: { gamma: 1, minRatio: 0.3 },
+  strong: { gamma: 1.6, minRatio: 0.12 },
+};
+
+export const DEFAULT_PEN_PRESSURE: PenPressure = { enabled: true, preset: 'balanced', gamma: 1, minRatio: 0.3, smoothing: 0.3 };
+
+/** Raw device pressure → calibrated linear 0..1 (floor/ceiling only, no curve). */
+export function linearPressure(raw: number, cal: Pick<PressureCalibration, 'floor' | 'ceiling'> = DEFAULT_CALIBRATION): number {
+  if (!Number.isFinite(raw)) return 0.5;
+  return clamp((raw - cal.floor) / Math.max(0.05, cal.ceiling - cal.floor), 0, 1);
+}
+
+/** Applies the pen's response curve. */
+export function applyCurve(p: number, gamma: number): number {
+  return Math.pow(clamp(p, 0, 1), clamp(gamma, 0.2, 4));
+}
+
 /** Map raw pointer pressure to calibrated 0..1. */
 export function normalizePressure(raw: number, cal: PressureCalibration = DEFAULT_CALIBRATION): number {
   if (!Number.isFinite(raw)) return 0.5;

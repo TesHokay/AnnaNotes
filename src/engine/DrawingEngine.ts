@@ -117,6 +117,35 @@ const MAX_DPR = 2;
 
 let clipboard: PageElement[] = [];
 
+/**
+ * Release velocity (px/ms) from the last ~100 ms of a pan, using event timestamps. Returns null
+ * when the finger had stopped before lifting. Capped so a burst of events can never cause a
+ * runaway fling.
+ */
+export function flingVelocity(samples: readonly { t: number; x: number; y: number }[], endT: number): { vx: number; vy: number } | null {
+  if (samples.length < 2) return null;
+  const last = samples[samples.length - 1]!;
+  if (endT - last.t > 60) return null;
+  let first = samples[0]!;
+  for (const smp of samples) {
+    if (last.t - smp.t <= 100) {
+      first = smp;
+      break;
+    }
+  }
+  const dt = last.t - first.t;
+  if (dt < 16) return null;
+  const MAX = 3.5;
+  let vx = (last.x - first.x) / dt;
+  let vy = (last.y - first.y) / dt;
+  const speed = Math.hypot(vx, vy);
+  if (speed > MAX) {
+    vx *= MAX / speed;
+    vy *= MAX / speed;
+  }
+  return { vx, vy };
+}
+
 export interface PerfStats {
   frameMs: number;
   bitmapRenders: number;
@@ -126,6 +155,8 @@ export interface PerfStats {
   predicted: boolean;
   cachedPages: number;
 }
+
+export type GestureState = 'IDLE' | 'DRAWING' | 'PANNING' | 'PINCHING' | 'SELECTING' | 'ERASING';
 
 /**
  * The drawing engine owns the canvases, input handling, viewport and rendering. It is plain
@@ -267,6 +298,16 @@ export class DrawingEngine {
   setSpacePan(v: boolean): void {
     this.spacePan = v;
     this.overlay.style.cursor = v ? 'grab' : '';
+  }
+
+  /** Current interaction state (shown on the performance HUD). */
+  get gestureState(): GestureState {
+    if (this.gesture) return this.gesture.kind === 'pinch' ? 'PINCHING' : 'PANNING';
+    const a = this.action?.a;
+    if (!a) return 'IDLE';
+    if (a instanceof EraserAction) return 'ERASING';
+    if (a instanceof LassoAction || a instanceof TransformAction) return 'SELECTING';
+    return 'DRAWING';
   }
 
   get isInteracting(): boolean {
@@ -617,6 +658,17 @@ export class DrawingEngine {
     on(o, 'contextmenu', (e: Event) => e.preventDefault());
     // iOS Safari: prevent the magnifier loupe, callouts and native scroll/zoom from touches on the canvas.
     on(o, 'touchstart', (e: TouchEvent) => e.preventDefault(), { passive: false });
+    // Safety net: touch events carry the authoritative list of fingers. When the last finger
+    // lifts, no touch pointer can still be active, whatever happened to its pointerup.
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) {
+        setTimeout(() => {
+          if ([...this.pointers.values()].some((p) => p.type === 'touch')) this.resetTouches();
+        }, 0);
+      }
+    };
+    on(o, 'touchend', onTouchEnd, { passive: true });
+    on(o, 'touchcancel', onTouchEnd, { passive: true });
     on(o, 'touchmove', (e: TouchEvent) => e.preventDefault(), { passive: false });
     on(o, 'gesturestart', (e: Event) => e.preventDefault(), { passive: false });
     on(o, 'gesturechange', (e: Event) => e.preventDefault(), { passive: false });
@@ -641,10 +693,18 @@ export class DrawingEngine {
       }
     }
     const wasZero = this.viewport.width === 0;
+    // Keep the document point at the centre of the screen in place (iPad rotation, Split View).
+    const anchor = wasZero ? null : this.viewport.toDoc({ x: this.viewport.width / 2, y: this.viewport.height / 2 });
     this.viewport.width = r.width;
     this.viewport.height = r.height;
     if (wasZero && this.pages.length && r.width > 0) this.setPages(this.pages);
-    else this.viewport.clampTo(this.layout);
+    else {
+      if (anchor) {
+        this.viewport.tx = r.width / 2 - anchor.x * this.viewport.scale;
+        this.viewport.ty = r.height / 2 - anchor.y * this.viewport.scale;
+      }
+      this.viewport.clampTo(this.layout);
+    }
     this.requestRender(true, true);
   }
 
@@ -670,6 +730,26 @@ export class DrawingEngine {
     };
   }
 
+  /** Forget all tracked touch pointers and any touch gesture (stale state recovery). */
+  private resetTouches(): void {
+    let changed = false;
+    for (const [id, p] of [...this.pointers]) {
+      if (p.type !== 'touch') continue;
+      this.pointers.delete(id);
+      changed = true;
+      if (this.action?.pointerId === id) {
+        this.action.a.end(true);
+        this.action = null;
+        this.setInteracting(false);
+      }
+    }
+    if (changed && this.gesture && (this.gesture.kind === 'pinch' || !this.pointers.has(this.gesture.pointerId))) {
+      this.gesture = null;
+      this.scheduleSettle();
+    }
+    this.tapCandidate = null;
+  }
+
   private touchIds(): number[] {
     return [...this.pointers.entries()].filter(([, p]) => p.type === 'touch').map(([id]) => id);
   }
@@ -689,7 +769,12 @@ export class DrawingEngine {
     this.inertia = null;
     const type = e.pointerType;
     if (type === 'touch') {
-      if (this.isPalm(e)) return;
+      // A primary touch means no other finger is on the screen: anything still tracked is a
+      // pointer whose pointerup/cancel Safari never delivered. Drop it, or the next one-finger
+      // swipe would be treated as a pinch with a ghost finger.
+      if (e.isPrimary) this.resetTouches();
+      // Size-based palm rejection only matters when fingers draw; a flat finger may scroll.
+      if (!this.stylusOnly && this.isPalm(e)) return;
       // Palm rejection: while the pen is writing (or just lifted), touches are ignored.
       if (this.action?.pointerType === 'pen' || performance.now() - this.lastPenUp < 250) return;
     }
@@ -823,7 +908,7 @@ export class DrawingEngine {
     info.y = sp.y;
     if (this.tapCandidate && Math.hypot(sp.x - info.startX, sp.y - info.startY) > 10) this.tapCandidate.moved = true;
     if (this.gesture) {
-      this.updateGesture(e.pointerId);
+      this.updateGesture(e.pointerId, e.timeStamp);
       return;
     }
     const act = this.action;
@@ -857,7 +942,7 @@ export class DrawingEngine {
     if (info.type === 'pen') this.lastPenUp = performance.now();
 
     if (this.gesture) {
-      this.onGesturePointerUp(e.pointerId, cancelled);
+      this.onGesturePointerUp(e.pointerId, cancelled, e.timeStamp);
     }
 
     // Multi-finger tap: two fingers = undo, three fingers = redo.
@@ -924,8 +1009,9 @@ export class DrawingEngine {
 
   // ---------------------------------------------------------------- pan / pinch
 
-  private startPan(pointerId: number, sp: Vec): void {
-    this.gesture = { kind: 'pan', pointerId, lastX: sp.x, lastY: sp.y, samples: [{ t: performance.now(), x: sp.x, y: sp.y }] };
+  private startPan(pointerId: number, sp: Vec, t = performance.now()): void {
+    this.inertia = null;
+    this.gesture = { kind: 'pan', pointerId, lastX: sp.x, lastY: sp.y, samples: [{ t, x: sp.x, y: sp.y }] };
     this.overlay.style.cursor = 'grabbing';
   }
 
@@ -943,7 +1029,7 @@ export class DrawingEngine {
     this.interacting = true;
   }
 
-  private updateGesture(pointerId: number): void {
+  private updateGesture(pointerId: number, t: number): void {
     const g = this.gesture!;
     if (g.kind === 'pan') {
       if (pointerId !== g.pointerId) return;
@@ -951,9 +1037,10 @@ export class DrawingEngine {
       this.viewport.panBy(p.x - g.lastX, p.y - g.lastY);
       g.lastX = p.x;
       g.lastY = p.y;
-      const now = performance.now();
-      g.samples.push({ t: now, x: p.x, y: p.y });
-      while (g.samples.length > 2 && now - g.samples[0]!.t > 100) g.samples.shift();
+      // Event timestamps, not "now": Safari delivers several pointermoves in one task, and
+      // processing-time deltas of ~0 ms turned into absurd fling velocities.
+      g.samples.push({ t, x: p.x, y: p.y });
+      while (g.samples.length > 2 && t - g.samples[0]!.t > 100) g.samples.shift();
     } else {
       const pa = this.pointers.get(g.a);
       const pb = this.pointers.get(g.b);
@@ -964,11 +1051,11 @@ export class DrawingEngine {
       this.viewport.zoomAt(d / g.startDist, g.startMid.x, g.startMid.y);
       this.viewport.panBy(mid.x - g.startMid.x, mid.y - g.startMid.y);
     }
-    this.viewport.clampTo(this.layout, 80);
+    this.viewport.clampTo(this.layout, g.kind === 'pinch' ? 80 : 40);
     this.requestRender(true, true);
   }
 
-  private onGesturePointerUp(pointerId: number, cancelled: boolean): void {
+  private onGesturePointerUp(pointerId: number, cancelled: boolean, endT?: number): void {
     const g = this.gesture!;
     if (g.kind === 'pinch') {
       if (pointerId !== g.a && pointerId !== g.b) return;
@@ -984,24 +1071,18 @@ export class DrawingEngine {
       }
       return;
     }
-    if (pointerId === g.pointerId) this.endGesture(!cancelled);
+    if (pointerId === g.pointerId) this.endGesture(!cancelled, endT);
   }
 
-  private endGesture(withInertia: boolean): void {
+  private endGesture(withInertia: boolean, endT?: number): void {
     const g = this.gesture;
     this.gesture = null;
     this.overlay.style.cursor = this.spacePan ? 'grab' : '';
-    if (g?.kind === 'pan' && withInertia && g.samples.length >= 2) {
-      const a = g.samples[0]!;
-      const b = g.samples[g.samples.length - 1]!;
-      const dt = b.t - a.t;
-      if (dt > 0 && performance.now() - b.t < 60) {
-        const vx = (b.x - a.x) / dt;
-        const vy = (b.y - a.y) / dt;
-        if (Math.hypot(vx, vy) > 0.3) {
-          this.inertia = { vx, vy, last: performance.now() };
-          this.requestRender(true, false);
-        }
+    if (g?.kind === 'pan' && withInertia) {
+      const v = flingVelocity(g.samples, endT ?? g.samples[g.samples.length - 1]?.t ?? 0);
+      if (v && Math.hypot(v.vx, v.vy) > 0.3) {
+        this.inertia = { vx: v.vx, vy: v.vy, last: performance.now() };
+        this.requestRender(true, false);
       }
     }
     this.scheduleSettle();
@@ -1143,17 +1224,24 @@ export class DrawingEngine {
   private requestRender(main: boolean, overlay: boolean): void {
     this.needsMain ||= main;
     this.needsOverlay ||= overlay;
-    if (!this.frameId) this.frameId = requestAnimationFrame((t) => this.frame(t));
+    if (!this.frameId) this.frameId = requestAnimationFrame(() => this.frame());
   }
 
-  private frame(now: number): void {
+  private frame(): void {
     this.frameId = 0;
     if (this.inertia) {
-      const dt = Math.min(32, now - this.inertia.last);
+      // One clock for the whole animation. The rAF timestamp can be *earlier* than the moment
+      // the fling started, which made dt negative: velocity grew and the page ran backwards.
+      const now = performance.now();
+      const dt = Math.max(0, Math.min(32, now - this.inertia.last));
       this.inertia.last = now;
+      const want = { tx: this.viewport.tx + this.inertia.vx * dt, ty: this.viewport.ty + this.inertia.vy * dt };
       this.viewport.panBy(this.inertia.vx * dt, this.inertia.vy * dt);
       this.viewport.clampTo(this.layout);
-      const decay = Math.pow(0.94, dt / 16);
+      // Reaching the end of the document stops the fling on that axis.
+      if (Math.abs(this.viewport.ty - want.ty) > 0.5) this.inertia.vy = 0;
+      if (Math.abs(this.viewport.tx - want.tx) > 0.5) this.inertia.vx = 0;
+      const decay = Math.pow(0.95, dt / 16);
       this.inertia.vx *= decay;
       this.inertia.vy *= decay;
       if (Math.hypot(this.inertia.vx, this.inertia.vy) < 0.02) {

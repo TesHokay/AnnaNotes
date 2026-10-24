@@ -3,8 +3,9 @@ import type { BBox } from '@/model/types';
 import type { Vec } from './geometry';
 
 export const PAGE_GAP = 24;
-export const MIN_SCALE = 0.2;
-export const MAX_SCALE = 8;
+/** Zoom range 50%..400% (100% = 1 pt per CSS px). */
+export const MIN_SCALE = 0.5;
+export const MAX_SCALE = 4;
 
 export interface PageSize {
   id: string;

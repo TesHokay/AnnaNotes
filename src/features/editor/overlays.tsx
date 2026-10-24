@@ -328,6 +328,7 @@ export function PerfOverlay() {
     <div className="pointer-events-none absolute left-3 top-3 z-10 rounded-md bg-black/75 px-3 py-2 font-mono text-[11px] leading-relaxed text-white">
       <div>frame {p.frameMs.toFixed(1)} ms · overlay {p.overlayMs.toFixed(1)} ms</div>
       <div>input {rates.events}/s · bitmaps {rates.renders}/s · cached {p.cachedPages}</div>
+      <div>state {session.engine?.gestureState} · zoom {Math.round((session.engine?.viewport.scale ?? 1) * 100)}%</div>
       <div>coalesced {p.coalesced ? 'yes' : 'no'} · predicted {p.predicted ? 'yes' : 'no'} · dpr {Math.min(devicePixelRatio, 2)}</div>
     </div>
   );

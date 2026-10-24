@@ -120,15 +120,14 @@ export function SplashScreen({ lang, onDone }: { lang: SplashLang; onDone: () =>
       className={`fixed inset-0 z-[200] bg-background transition-opacity ease-out ${fading ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
       style={{ transitionDuration: `${FADE_MS}ms` }}
       onPointerDown={finish}
-      role="img"
-      aria-label={PHRASES[lang]}
       data-testid="splash"
       data-lang={lang}
     >
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
+      <canvas ref={canvasRef} role="img" aria-label={PHRASES[lang]} className="absolute inset-0 h-full w-full" />
       <button
         type="button"
         onClick={finish}
+        aria-label="Пропустить анимацию"
         className="pb-safe absolute bottom-0 right-0 m-4 rounded-full bg-muted/70 px-4 py-2 text-[13px] text-muted-foreground backdrop-blur"
       >
         Пропустить

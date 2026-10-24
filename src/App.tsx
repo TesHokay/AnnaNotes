@@ -86,7 +86,7 @@ export function App() {
       )}
       {splash && <SplashScreen lang={splash} onDone={() => setSplash(null)} />}
       <ImportDialog />
-      <Onboarding />
+      {!splash && <Onboarding />}
       <Toaster />
     </>
   );

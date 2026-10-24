@@ -13,7 +13,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run build && node scripts/serve-like-cloudflare.mjs 4173',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
+    reuseExistingServer: false, // always test a fresh build
     timeout: 180_000,
   },
   projects: [

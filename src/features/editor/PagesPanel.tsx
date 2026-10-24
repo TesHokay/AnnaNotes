@@ -122,6 +122,8 @@ export function PagesPanel() {
               if (el) itemRefs.current.set(p.id, el);
               else itemRefs.current.delete(p.id);
             }}
+            // Off-screen thumbnails are skipped by the browser's renderer (cheap virtualisation for long notebooks).
+            style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${Math.round(136 * (p.height / p.width)) + 48}px` }}
             className={cn('relative pt-3', drag?.over === i && drag.id !== p.id && 'before:absolute before:inset-x-0 before:top-0.5 before:h-1 before:rounded-full before:bg-primary')}
           >
             <button

@@ -63,20 +63,40 @@ interface SettingsActions {
   updateTools(fn: (t: ToolSettings) => ToolSettings): void;
 }
 
-const pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingWrites = new Map<string, { timer: ReturnType<typeof setTimeout>; value: unknown }>();
+/** Keys changed continuously by sliders are debounced; everything else is written immediately. */
+const DEBOUNCED = new Set(['tools', 'calibration', 'smoothing']);
+
+function write(key: string, value: unknown): void {
+  void setSetting(key, value).catch(() => {
+    /* settings are non-critical; a failed write keeps the in-memory value */
+  });
+}
 
 function persist(key: string, value: unknown): void {
-  const t = pendingWrites.get(key);
-  if (t) clearTimeout(t);
-  pendingWrites.set(
-    key,
-    setTimeout(() => {
+  const pending = pendingWrites.get(key);
+  if (pending) clearTimeout(pending.timer);
+  if (!DEBOUNCED.has(key)) {
+    pendingWrites.delete(key);
+    write(key, value);
+    return;
+  }
+  pendingWrites.set(key, {
+    value,
+    timer: setTimeout(() => {
       pendingWrites.delete(key);
-      void setSetting(key, value).catch(() => {
-        /* settings are non-critical; a failed write keeps the in-memory value */
-      });
+      write(key, value);
     }, 250),
-  );
+  });
+}
+
+/** Write debounced settings now (page hidden / closing). */
+export function flushSettings(): void {
+  for (const [key, { timer, value }] of pendingWrites) {
+    clearTimeout(timer);
+    write(key, value);
+  }
+  pendingWrites.clear();
 }
 
 export const useSettings = create<SettingsState & SettingsActions>((set, get) => ({

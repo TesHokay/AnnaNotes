@@ -3,7 +3,11 @@ import { expect, type Page } from '@playwright/test';
 export async function openFresh(page: Page): Promise<void> {
   await page.goto('/');
   const skip = page.getByRole('button', { name: 'Пропустить' });
-  await skip.click({ timeout: 10_000 }).catch(() => {});
+  if (await skip.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true, () => false)) {
+    await skip.click();
+    // The choice is stored in IndexedDB; wait for it so an immediate reload keeps it.
+    await expect.poll(() => countStore(page, 'settings')).toBeGreaterThan(0);
+  }
 }
 
 /** Number of records in an IndexedDB object store of the app database. */

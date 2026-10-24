@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Segmented, Slider, Switch } from '@/components/ui/controls';
 import { useSettings, type ThemePref } from '@/store/settings';
-import { useUI, errorMessage, toast } from '@/store/ui';
+import { useUI, errorMessage, navigate, toast } from '@/store/ui';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { pickFiles } from '@/lib/files';
 import { exportLibraryBackup, readBackupFile } from '@/features/actions';
@@ -15,6 +15,7 @@ import { PressureTestPad } from './PressureTestPad';
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const s = useSettings();
   const persisted = useUI((u) => u.storagePersisted);
+  const offlineReady = useUI((u) => u.offlineReady);
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [restore, setRestore] = useState<ParsedBackup | null>(null);
@@ -132,9 +133,20 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
           <Section title="Для разработчиков">
             <Switch checked={s.showPerf} onChange={(v) => s.set('showPerf', v)} label="Панель производительности" description="Время кадра, перерисовки, события ввода (Shift+P)" />
-            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-              <Activity className="h-4 w-4" /> Версия {__APP_VERSION__}
+            <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+              <Activity className="h-4 w-4" /> Версия {__APP_VERSION__} · commit {__APP_COMMIT__} ·{' '}
+              <span className={offlineReady ? 'text-[#2f9e5b]' : 'text-destructive'}>{offlineReady ? 'работает офлайн' : 'офлайн-кэш не готов'}</span>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                onOpenChange(false);
+                navigate({ name: 'diagnostics' });
+              }}
+            >
+              Диагностика PWA и хранилища
+            </Button>
           </Section>
         </DialogContent>
       </Dialog>

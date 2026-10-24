@@ -11,7 +11,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run build && npm run preview',
+    command: 'npm run build && node scripts/serve-like-cloudflare.mjs 4173',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: true,
     timeout: 180_000,

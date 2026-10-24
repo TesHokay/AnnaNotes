@@ -8,6 +8,7 @@ import { LibraryView } from '@/features/library/LibraryView';
 import { useSettings } from '@/store/settings';
 import { initUIListeners, useUI } from '@/store/ui';
 
+const DiagnosticsView = lazy(() => import('@/features/diagnostics/DiagnosticsView').then((m) => ({ default: m.DiagnosticsView })));
 const EditorView = lazy(() => import('@/features/editor/EditorView').then((m) => ({ default: m.EditorView })));
 
 function useTheme() {
@@ -73,6 +74,10 @@ export function App() {
     <>
       {!loaded ? (
         <Splash />
+      ) : route.name === 'diagnostics' ? (
+        <Suspense fallback={<Splash />}>
+          <DiagnosticsView />
+        </Suspense>
       ) : route.name === 'notebook' ? (
         <Suspense fallback={<Splash />}>
           <EditorView key={route.id} id={route.id} />

@@ -10,7 +10,7 @@ export interface Toast {
   duration: number;
 }
 
-export type Route = { name: 'library' } | { name: 'notebook'; id: string };
+export type Route = { name: 'library' } | { name: 'notebook'; id: string } | { name: 'diagnostics' };
 
 interface UIState {
   route: Route;
@@ -18,6 +18,8 @@ interface UIState {
   save: SaveState;
   online: boolean;
   updateAvailable: boolean;
+  /** App shell is cached by the service worker (works offline). */
+  offlineReady: boolean;
   applyUpdate: (() => Promise<void>) | null;
   storagePersisted: boolean | null;
   dbError: string | null;
@@ -27,6 +29,7 @@ interface UIState {
 }
 
 export function parseHash(hash: string): Route {
+  if (hash.startsWith('#/diagnostics')) return { name: 'diagnostics' };
   const m = /^#\/nb\/([\w-]+)/.exec(hash);
   return m && m[1] ? { name: 'notebook', id: m[1] } : { name: 'library' };
 }
@@ -37,6 +40,7 @@ export const useUI = create<UIState>((set) => ({
   save: saveQueue.getState(),
   online: typeof navigator !== 'undefined' ? navigator.onLine : true,
   updateAvailable: false,
+  offlineReady: false,
   applyUpdate: null,
   storagePersisted: null,
   dbError: null,
@@ -53,7 +57,7 @@ export const useUI = create<UIState>((set) => ({
 }));
 
 export function navigate(route: Route): void {
-  const hash = route.name === 'library' ? '#/' : `#/nb/${route.id}`;
+  const hash = route.name === 'library' ? '#/' : route.name === 'diagnostics' ? '#/diagnostics' : `#/nb/${route.id}`;
   if (location.hash !== hash) location.hash = hash;
   useUI.setState({ route });
 }

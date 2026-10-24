@@ -1,0 +1,13 @@
+// Cloudflare Workers (static assets) deployment of AnnaNotes.
+// Build first (`npm run build`), then `npx wrangler deploy`, or connect the GitHub repo in
+// Workers & Pages → Settings → Builds (build command: npm run build, deploy command: npx wrangler deploy).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "annanotes",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./dist",
+    // Unknown paths fall back to index.html (client-side routes).
+    "not_found_handling": "single-page-application"
+  }
+}

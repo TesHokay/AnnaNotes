@@ -29,3 +29,26 @@ test('works offline after the first visit (service worker app shell)', async ({ 
   expect(await countStore(page, 'elements')).toBe(2);
   await context.setOffline(false);
 });
+
+test('cold start offline: a brand-new page in the same browser opens from cache', async ({ page, context, browserName }) => {
+  test.skip(browserName === 'webkit', 'Playwright WebKit on Windows does not run service workers');
+  await openFresh(page);
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  await createNotebook(page, 'Холодный старт');
+  await drawStroke(page);
+  await waitSaved(page);
+  await page.close();
+
+  // Simulates relaunching the installed app with no network: new page, deep link, offline.
+  await context.setOffline(true);
+  const fresh = await context.newPage();
+  await fresh.goto('/');
+  await expect(fresh.getByTestId('notebook-item')).toHaveCount(1);
+  await fresh.goto('/index.html'); // Cloudflare redirects this URL; offline it must still work
+  await expect(fresh.getByTestId('notebook-item')).toHaveCount(1);
+  await fresh.goto('/#/diagnostics');
+  await expect(fresh.getByText('Офлайн-запуск готов')).toBeVisible();
+  await context.setOffline(false);
+});

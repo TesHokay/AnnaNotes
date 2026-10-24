@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { saveQueue } from './db/saveQueue';
+import { flushSettings } from './store/settings';
 import { registerServiceWorker } from './pwa/register';
 import './index.css';
 
@@ -13,9 +14,13 @@ import './index.css';
  * still unsaved.
  */
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') void saveQueue.flush().catch(() => {});
+  if (document.visibilityState === 'hidden') {
+    flushSettings();
+    void saveQueue.flush().catch(() => {});
+  }
 });
 window.addEventListener('pagehide', () => {
+  flushSettings();
   void saveQueue.flush().catch(() => {});
 });
 window.addEventListener('beforeunload', (e) => {

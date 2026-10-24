@@ -72,11 +72,36 @@ export async function rasterizeTextElement(el: TextElement): Promise<{ png: Uint
 
 const thumbCache = new Map<string, string>();
 
+// Thumbnails are rendered one at a time in idle periods so they never compete with scrolling
+// or drawing on the main thread.
+let thumbChain: Promise<unknown> = Promise.resolve();
+function idle(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(() => resolve(), { timeout: 1500 });
+    else setTimeout(resolve, 80);
+  });
+}
+function enqueueThumb<T>(job: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    await idle();
+    return job();
+  };
+  const p = thumbChain.then(run, run);
+  thumbChain = p.catch(() => null);
+  return p;
+}
+
 /** Small JPEG thumbnail as an object URL, cached per page version. */
 export async function pageThumbnail(page: Page, version: number, width = 180, elements?: readonly PageElement[]): Promise<string> {
   const key = `${page.id}:${version}:${page.template}:${page.paperColor}:${page.width}`;
   const cached = thumbCache.get(key);
   if (cached) return cached;
+  return enqueueThumb(() => renderThumb(page, key, width, elements));
+}
+
+async function renderThumb(page: Page, key: string, width: number, elements?: readonly PageElement[]): Promise<string> {
+  const again = thumbCache.get(key);
+  if (again) return again;
   const canvas = await renderPageCanvas(page, width / page.width, elements);
   const blob = await canvasToBlob(canvas, 'image/jpeg', 0.8);
   canvas.width = canvas.height = 0;

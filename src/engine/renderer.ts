@@ -84,7 +84,7 @@ function getScratch(w: number, h: number): CanvasRenderingContext2D | OffscreenC
  * Highlighter strokes are drawn opaque into a scratch layer and composited once with the
  * group's opacity, so overlapping highlights keep a uniform transparency instead of darkening.
  */
-function drawHighlighterLayer(ctx: CanvasRenderingContext2D, strokes: StrokeElement[]): void {
+function drawHighlighterLayer(ctx: CanvasRenderingContext2D, strokes: StrokeElement[], region?: BBox): void {
   const groups = new Map<number, StrokeElement[]>();
   for (const s of strokes) {
     const g = groups.get(s.opacity) ?? [];
@@ -92,8 +92,22 @@ function drawHighlighterLayer(ctx: CanvasRenderingContext2D, strokes: StrokeElem
     groups.set(s.opacity, g);
   }
   const t = ctx.getTransform();
-  const w = ctx.canvas.width;
-  const h = ctx.canvas.height;
+  // Work only on the pixels that are being repainted (dirty rect), not the whole bitmap.
+  let px = 0;
+  let py = 0;
+  let w = ctx.canvas.width;
+  let h = ctx.canvas.height;
+  if (region) {
+    const x0 = Math.max(0, Math.floor(t.a * region.minX + t.e));
+    const y0 = Math.max(0, Math.floor(t.d * region.minY + t.f));
+    const x1 = Math.min(w, Math.ceil(t.a * region.maxX + t.e));
+    const y1 = Math.min(h, Math.ceil(t.d * region.maxY + t.f));
+    if (x1 <= x0 || y1 <= y0) return;
+    px = x0;
+    py = y0;
+    w = x1 - x0;
+    h = y1 - y0;
+  }
   for (const [opacity, group] of groups) {
     const sctx = getScratch(w, h);
     if (!sctx) {
@@ -102,7 +116,7 @@ function drawHighlighterLayer(ctx: CanvasRenderingContext2D, strokes: StrokeElem
     }
     sctx.setTransform(1, 0, 0, 1, 0, 0);
     sctx.clearRect(0, 0, w, h);
-    sctx.setTransform(t);
+    sctx.setTransform(t.a, t.b, t.c, t.d, t.e - px, t.f - py);
     for (const s of group) {
       sctx.fillStyle = s.color;
       sctx.fill(strokePath(s));
@@ -110,7 +124,7 @@ function drawHighlighterLayer(ctx: CanvasRenderingContext2D, strokes: StrokeElem
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = opacity;
-    ctx.drawImage(sctx.canvas as CanvasImageSource, 0, 0, w, h, 0, 0, w, h);
+    ctx.drawImage(sctx.canvas as CanvasImageSource, 0, 0, w, h, px, py, w, h);
     ctx.restore();
   }
 }
@@ -140,7 +154,7 @@ export function drawElements(ctx: CanvasRenderingContext2D, elements: readonly P
     else ink.push(el);
   }
   for (const el of images) drawImageElement(ctx, el, opts.resolveImage);
-  if (highlights.length) drawHighlighterLayer(ctx, highlights);
+  if (highlights.length) drawHighlighterLayer(ctx, highlights, opts.region);
   for (const s of ink) drawStroke(ctx, s);
   for (const t of texts) drawTextElement(ctx, t);
 }

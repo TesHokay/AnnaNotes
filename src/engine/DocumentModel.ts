@@ -1,6 +1,7 @@
 import type { BBox, PageElement, UUID } from '@/model/types';
 import { bboxUnion, elementBBox } from './geometry';
 import { History, type ChangeSet } from './history';
+import { GridIndex } from './spatialIndex';
 
 export interface Persistence {
   enqueue(put: readonly PageElement[], del: readonly UUID[]): void;
@@ -39,6 +40,7 @@ export function nextZ(): number {
 export class DocumentModel {
   readonly history = new History();
   private cache = new Map<UUID, PageElement[]>();
+  private indexes = new Map<UUID, GridIndex>();
   private loading = new Map<UUID, Promise<PageElement[]>>();
   private listeners = new Set<Listener>();
 
@@ -65,6 +67,20 @@ export class DocumentModel {
     return this.cache.get(pageId)?.find((e) => e.id === id);
   }
 
+  /** Elements whose bounding box intersects `b`, via the page's spatial index. */
+  query(pageId: UUID, b: BBox): PageElement[] {
+    const els = this.cache.get(pageId);
+    if (!els) return [];
+    let idx = this.indexes.get(pageId);
+    if (!idx) this.indexes.set(pageId, (idx = GridIndex.build(els)));
+    return idx.query(b);
+  }
+
+  private setPage(pageId: UUID, els: PageElement[]): void {
+    this.cache.set(pageId, els);
+    this.indexes.delete(pageId); // rebuilt lazily on the next query
+  }
+
   ensureLoaded(pageId: UUID): Promise<readonly PageElement[]> {
     const cached = this.cache.get(pageId);
     if (cached) return Promise.resolve(cached);
@@ -78,10 +94,10 @@ export class DocumentModel {
           if (existing) {
             const ids = new Set(existing.map((e) => e.id));
             const merged = [...existing, ...els.filter((e) => !ids.has(e.id))].sort((a, b) => a.z - b.z);
-            this.cache.set(pageId, merged);
+            this.setPage(pageId, merged);
             return merged;
           }
-          this.cache.set(pageId, els);
+          this.setPage(pageId, els);
           return els;
         },
         (err) => {
@@ -96,11 +112,17 @@ export class DocumentModel {
 
   /** Drop cached elements of pages that are far from the viewport to bound memory. */
   evictExcept(keep: ReadonlySet<UUID>): void {
-    for (const id of [...this.cache.keys()]) if (!keep.has(id)) this.cache.delete(id);
+    for (const id of [...this.cache.keys()]) {
+      if (!keep.has(id)) {
+        this.cache.delete(id);
+        this.indexes.delete(id);
+      }
+    }
   }
 
   forgetPage(pageId: UUID): void {
     this.cache.delete(pageId);
+    this.indexes.delete(pageId);
     this.history.dropPage(pageId);
   }
 
@@ -124,16 +146,23 @@ export class DocumentModel {
       // Pages that are not in memory are only updated in storage; they load fresh later.
       const current = this.cache.get(pageId);
       if (!current) continue;
-      const next = current.filter((e) => !removedIds.has(e.id));
-      const added = byPage.get(pageId);
-      if (added) {
-        const addedIds = new Set(added.map((e) => e.id));
-        const kept = next.filter((e) => !addedIds.has(e.id));
-        kept.push(...added);
-        kept.sort((a, b) => a.z - b.z);
-        this.cache.set(pageId, kept);
-      } else {
-        this.cache.set(pageId, next);
+      const added = byPage.get(pageId) ?? [];
+      const addedIds = new Set(added.map((e) => e.id));
+      const next = current.filter((e) => !removedIds.has(e.id) && !addedIds.has(e.id));
+      if (added.length) {
+        // Usually the new elements are on top (new strokes) or replace one at the same z
+        // (eraser fragments, transforms): insert in order instead of re-sorting the page.
+        for (const el of [...added].sort((a, b) => a.z - b.z)) {
+          let i = next.length;
+          while (i > 0 && next[i - 1]!.z > el.z) i--;
+          next.splice(i, 0, el);
+        }
+      }
+      this.cache.set(pageId, next);
+      const idx = this.indexes.get(pageId);
+      if (idx) {
+        for (const id of removedIds) idx.remove(id);
+        for (const el of added) idx.insert(el);
       }
     }
     if (opts.history) this.history.push({ label: opts.history, removed: change.removed, added: change.added });

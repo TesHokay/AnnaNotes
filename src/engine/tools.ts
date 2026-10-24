@@ -7,6 +7,7 @@ import {
   applyMatrix,
   bboxCenter,
   bboxFromPoints,
+  bboxInflate,
   bboxUnion,
   decompose,
   dist,
@@ -39,7 +40,7 @@ export interface ToolConfig {
   tool: ToolKind;
   pen: { color: string; width: number; opacity: number; style: PenStyle };
   highlighter: { color: string; width: number; opacity: number; snapToText: boolean };
-  eraser: { mode: 'stroke' | 'partial'; size: number };
+  eraser: { mode: 'stroke' | 'partial' | 'object'; size: number };
   lasso: { mode: 'free' | 'rect' };
   shape: { kind: ShapeKind | 'auto'; color: string; width: number };
   text: { fontFamily: FontFamilyKey; fontSize: number; color: string; align: TextAlign };
@@ -326,6 +327,9 @@ export class EraserAction implements Action {
   private removedOriginals = new Map<UUID, PageElement>();
   private created = new Map<UUID, PageElement>();
   private cursor: Vec;
+  /** Path segments not yet applied; processed at most once per animation frame. */
+  private pendingPath: Vec[] = [];
+  private frame = 0;
 
   constructor(
     private readonly ctx: ToolContext,
@@ -334,7 +338,8 @@ export class EraserAction implements Action {
   ) {
     this.last = first;
     this.cursor = first;
-    this.sweep(first);
+    this.pendingPath.push(first);
+    this.flush();
   }
 
   private radius(): number {
@@ -342,47 +347,85 @@ export class EraserAction implements Action {
     return this.ctx.config.eraser.size / 2 / this.ctx.scale();
   }
 
-  private sweep(to: Vec): void {
-    const els = this.ctx.model.getElements(this.pageId);
-    if (!els) return;
-    const sweep = { from: this.last, to, radius: this.radius() };
-    const removed: PageElement[] = [];
-    const added: PageElement[] = [];
-    for (const el of els) {
+  private sweep(to: Vec, removed: Map<UUID, PageElement>, added: Map<UUID, PageElement>): void {
+    const r = this.radius();
+    const sweep = { from: this.last, to, radius: r };
+    const box = bboxInflate(bboxFromPoints([this.last, to]), r + 2);
+    const mode = this.ctx.config.eraser.mode;
+    // Broad phase through the spatial index, then exact tests. Elements created earlier in this
+    // same frame (fragments) are not yet in the model, so test them too.
+    const candidates = [...this.ctx.model.query(this.pageId, box).filter((e) => !removed.has(e.id)), ...added.values()];
+    for (const el of candidates) {
+      if (mode === 'object') {
+        if (el.type === 'stroke' && el.tool !== 'shape') continue;
+        const hit = el.type === 'stroke' ? strokeHitBySweep(el, sweep) : hitTestElement([el], to, r) !== null;
+        if (hit) {
+          if (added.has(el.id)) added.delete(el.id);
+          else removed.set(el.id, el);
+        }
+        continue;
+      }
       if (el.type !== 'stroke') continue;
-      if (this.ctx.config.eraser.mode === 'stroke') {
-        if (strokeHitBySweep(el, sweep)) removed.push(el);
+      if (mode === 'stroke') {
+        if (strokeHitBySweep(el, sweep)) {
+          if (added.has(el.id)) added.delete(el.id);
+          else removed.set(el.id, el);
+        }
       } else {
         const frags = eraseStrokePartially(el, sweep, uuid);
         if (frags) {
-          removed.push(el);
-          added.push(...frags);
+          if (added.has(el.id)) added.delete(el.id);
+          else removed.set(el.id, el);
+          for (const f of frags) added.set(f.id, f);
         }
       }
     }
     this.last = to;
-    if (!removed.length) return;
-    for (const el of removed) {
+  }
+
+  private flush = (): void => {
+    this.frame = 0;
+    if (!this.pendingPath.length) return;
+    const removed = new Map<UUID, PageElement>();
+    const added = new Map<UUID, PageElement>();
+    for (const p of this.pendingPath) this.sweep(p, removed, added);
+    this.pendingPath = [];
+    if (!removed.size && !added.size) return;
+    for (const el of removed.values()) {
       if (this.created.has(el.id)) this.created.delete(el.id);
       else this.removedOriginals.set(el.id, el);
     }
-    for (const el of added) this.created.set(el.id, el);
-    this.ctx.model.apply({ removed, added }, { history: null, persist: false });
-  }
+    for (const el of added.values()) this.created.set(el.id, el);
+    this.ctx.model.apply({ removed: [...removed.values()], added: [...added.values()] }, { history: null, persist: false });
+  };
 
   move(samples: Sample[]): void {
-    for (const s of samples) this.sweep(s);
+    // Keep only points that moved meaningfully; the capsule sweep covers the gaps.
+    const minStep = Math.max(0.5, this.radius() / 3);
+    for (const s of samples) {
+      const prev = this.pendingPath[this.pendingPath.length - 1] ?? this.last;
+      if (dist(prev, s) >= minStep) this.pendingPath.push({ x: s.x, y: s.y });
+    }
     const s = samples[samples.length - 1];
     if (s) this.cursor = s;
+    // The cursor is redrawn immediately; erasing work is batched into the next frame.
     this.ctx.requestOverlay();
+    if (!this.frame && this.pendingPath.length) this.frame = requestAnimationFrame(this.flush);
   }
 
   end(): void {
+    if (this.frame) cancelAnimationFrame(this.frame);
+    const last = this.pendingPath.length ? null : this.cursor;
+    if (last && dist(last, this.last) > 0) this.pendingPath.push(last);
+    this.flush();
     const change: ChangeSet = { removed: [...this.removedOriginals.values()], added: [...this.created.values()] };
+    // One undo step for the whole eraser pass.
     if (change.removed.length || change.added.length) this.ctx.model.commitTransient(change, 'Ластик');
   }
 
   abort(): void {
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.pendingPath = [];
     const change: ChangeSet = { removed: [...this.created.values()], added: [...this.removedOriginals.values()] };
     if (change.removed.length || change.added.length) this.ctx.model.apply(change, { history: null, persist: false });
     this.created.clear();

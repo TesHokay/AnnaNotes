@@ -243,14 +243,18 @@ function ToolOptions({ tool }: { tool: ToolKind }) {
     case 'eraser':
       return (
         <div className="flex flex-col gap-4">
-          <Segmented<'partial' | 'stroke'>
+          <Segmented<'partial' | 'stroke' | 'object'>
             value={tools.eraser.mode}
             onChange={(mode) => update((t) => ({ ...t, eraser: { ...t.eraser, mode } }))}
             options={[
-              { value: 'partial', label: 'Частично' },
-              { value: 'stroke', label: 'Штрих целиком' },
+              { value: 'partial', label: 'Точный' },
+              { value: 'stroke', label: 'Штрих' },
+              { value: 'object', label: 'Объект' },
             ]}
           />
+          <p className="text-[12px] text-muted-foreground">
+            {tools.eraser.mode === 'partial' ? 'Стирает только участок под ластиком.' : tools.eraser.mode === 'stroke' ? 'Удаляет линию целиком.' : 'Удаляет фигуры, текст и изображения целиком.'}
+          </p>
           <Slider label="Размер" min={8} max={96} value={tools.eraser.size} onChange={(size) => update((t) => ({ ...t, eraser: { ...t.eraser, size } }))} />
           <Button
             variant="secondary"

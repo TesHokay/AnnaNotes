@@ -101,6 +101,9 @@ type Gesture =
 
 /** Max pixels of one cached page bitmap; keeps iPad Safari well under its canvas memory limits. */
 const MAX_BITMAP_PIXELS = 6_000_000;
+/** Total pixel budget for all cached page bitmaps (~4 bytes each). */
+const MAX_CACHE_PIXELS = 36_000_000;
+const PREFETCH_PAGES = 2;
 const MAX_DPR = 2;
 
 let clipboard: PageElement[] = [];
@@ -473,6 +476,10 @@ export class DrawingEngine {
 
   destroy(): void {
     cancelAnimationFrame(this.frameId);
+    if (this.prefetchHandle) {
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.prefetchHandle);
+      clearTimeout(this.prefetchHandle);
+    }
     if (this.settleTimer) clearTimeout(this.settleTimer);
     this.action?.a.abort();
     for (const d of this.disposers) d();
@@ -1054,7 +1061,9 @@ export class DrawingEngine {
     ctx.setTransform(bm.res, 0, 0, bm.res, -bm.region.minX * bm.res, -bm.region.minY * bm.res);
     if (!page.pdf) drawTemplate(ctx, page, bm.res);
     const skip = this.hidden?.pageId === pageId ? this.hidden.ids : undefined;
-    drawElements(ctx, els, { resolveImage: (id) => this.images.get(id), skip, region: clip });
+    // Only elements under the dirty rectangle matter: fetch them from the spatial index.
+    const local = this.model.query(pageId, clip).sort((a, b) => a.z - b.z);
+    drawElements(ctx, local, { resolveImage: (id) => this.images.get(id), skip, region: clip });
     ctx.restore();
     this.perf.bitmapRenders++;
   }
@@ -1204,9 +1213,9 @@ export class DrawingEngine {
     this.perf.bitmapRenders++;
   }
 
-  private ensurePdfBackground(page: Page, slot: PageSlot, cache: PageCache, want: { res: number; region: BBox }): void {
+  private ensurePdfBackground(page: Page, slot: PageSlot, cache: PageCache, want: { res: number; region: BBox }, prefetch = false): void {
     if (this.interacting) return;
-    if (cache.bg && this.bitmapUsable(cache.bg, want, slot)) return;
+    if (cache.bg && (prefetch ? Math.abs(cache.bg.res - want.res) / want.res <= 0.02 : this.bitmapUsable(cache.bg, want, slot))) return;
     const r = want.region;
     const key = `${want.res.toFixed(3)}|${r.minX.toFixed(1)},${r.minY.toFixed(1)},${r.maxX.toFixed(1)},${r.maxY.toFixed(1)}`;
     if (cache.bgKey === key) return; // already rendering this
@@ -1245,7 +1254,10 @@ export class DrawingEngine {
     const slots = visibleSlots(this.layout, vis.minY, vis.maxY);
     const s = vp.scale;
     ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * vp.tx, dpr * vp.ty);
-    let budget = this.caches.size === 0 ? slots.length : 2;
+    // First frame renders everything visible; afterwards at most one bitmap per frame, and only
+    // while the frame is still cheap, so scrolling never stalls on a heavy page.
+    let budget = this.caches.size === 0 ? slots.length : 1;
+    const frameStart = performance.now();
     let more = false;
     const keep = new Set<UUID>();
 
@@ -1288,7 +1300,7 @@ export class DrawingEngine {
       }
 
       if (loaded && (cache.dirty || !this.bitmapUsable(cache.content, want, slot))) {
-        if (!this.interacting && budget > 0) {
+        if (!this.interacting && (budget > 0 || !cache.content) && (performance.now() - frameStart < 10 || !cache.content)) {
           this.renderContent(page, cache, want);
           budget--;
         } else if (!this.interacting) more = true;
@@ -1308,19 +1320,91 @@ export class DrawingEngine {
       ctx.restore();
     }
 
-    // Keep neighbours of visible pages cached; release everything else.
+    // Keep visible pages and two neighbours on each side cached (rendered ahead in idle time),
+    // bounded by a pixel budget; release everything else.
     const first = slots[0]?.index ?? 0;
     const last = slots[slots.length - 1]?.index ?? 0;
-    for (let i = Math.max(0, first - 1); i <= Math.min(this.layout.slots.length - 1, last + 1); i++) keep.add(this.layout.slots[i]!.id);
+    const n = this.layout.slots.length;
+    const near: UUID[] = [];
+    for (let d = 1; d <= PREFETCH_PAGES; d++) {
+      if (last + d < n) near.push(this.layout.slots[last + d]!.id);
+      if (first - d >= 0) near.push(this.layout.slots[first - d]!.id);
+    }
+    let pixels = 0;
+    for (const id of keep) pixels += this.cachePixels(id);
+    for (const id of near) {
+      const px = this.cachePixels(id);
+      if (pixels + px > MAX_CACHE_PIXELS) break;
+      pixels += px;
+      keep.add(id);
+    }
     for (const id of [...this.caches.keys()]) if (!keep.has(id)) this.dropCache(id);
     const modelKeep = new Set(keep);
-    for (let i = Math.max(0, first - 3); i <= Math.min(this.layout.slots.length - 1, last + 3); i++) modelKeep.add(this.layout.slots[i]!.id);
+    for (let i = Math.max(0, first - 4); i <= Math.min(n - 1, last + 4); i++) modelKeep.add(this.layout.slots[i]!.id);
     if (this.selection) modelKeep.add(this.selection.pageId);
     if (this.editingText) modelKeep.add(this.editingText.element.pageId);
     if (this.action) modelKeep.add(this.action.a.pageId);
     this.model.evictExcept(modelKeep);
     this.perf.cachedPages = this.caches.size;
+    this.prefetchQueue = near.filter((id) => keep.has(id));
     if (more) this.requestRender(true, false);
+    else this.schedulePrefetch();
+  }
+
+  private cachePixels(pageId: UUID): number {
+    const c = this.caches.get(pageId);
+    const a = c?.content ? c.content.canvas.width * c.content.canvas.height : 0;
+    const b = c?.bg ? c.bg.canvas.width * c.bg.canvas.height : 0;
+    if (a || b) return a + b;
+    // Not rendered yet: estimate from the page size at the current resolution.
+    const slot = this.slotOf(pageId);
+    if (!slot) return 0;
+    const want = this.targetBitmap(slot);
+    const page = this.pageById.get(pageId);
+    const area = Math.max(0, want.region.maxX - want.region.minX) * Math.max(0, want.region.maxY - want.region.minY) * want.res * want.res;
+    return page?.pdf ? area * 2 : area;
+  }
+
+  private prefetchQueue: UUID[] = [];
+  private prefetchHandle = 0;
+
+  /**
+   * Idle-time work: load elements and render bitmaps (and PDF backgrounds) of the pages next to
+   * the viewport, one page per idle slot, so turning the page shows finished content immediately.
+   */
+  private schedulePrefetch(): void {
+    if (this.prefetchHandle || !this.prefetchQueue.length) return;
+    const ric: (cb: () => void) => number =
+      typeof requestIdleCallback === 'function' ? (cb) => requestIdleCallback(cb, { timeout: 300 }) : (cb) => window.setTimeout(cb, 60);
+    this.prefetchHandle = ric(() => {
+      this.prefetchHandle = 0;
+      if (this.interacting || this.action || this.gesture || this.inertia) {
+        this.schedulePrefetch();
+        return;
+      }
+      const id = this.prefetchQueue.shift();
+      if (!id) return;
+      const page = this.pageById.get(id);
+      const slot = this.slotOf(id);
+      if (!page || !slot) return this.schedulePrefetch();
+      if (!this.model.isLoaded(id)) {
+        this.model.ensureLoaded(id).then(
+          () => {
+            this.prefetchQueue.unshift(id);
+            this.schedulePrefetch();
+          },
+          () => {},
+        );
+        return;
+      }
+      const want = this.targetBitmap(slot);
+      // Zoomed far in, bitmaps cover only the visible part of a page: nothing to pre-render.
+      if (want.region.maxX <= want.region.minX || want.region.maxY <= want.region.minY) return this.schedulePrefetch();
+      const cache = this.getCache(id);
+      if (page.pdf) this.ensurePdfBackground(page, slot, cache, want, true);
+      if (cache.dirty || !cache.content || Math.abs(cache.content.res - want.res) / want.res > 0.02) this.renderContent(page, cache, want);
+      this.schedulePrefetch();
+    });
   }
 
   private renderOverlay(): void {

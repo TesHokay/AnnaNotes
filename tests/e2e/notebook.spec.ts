@@ -48,7 +48,7 @@ test.describe('notebooks', () => {
     // Whole-stroke eraser across the first stroke.
     await page.getByTestId('tool-eraser').click();
     await page.getByTestId('tool-eraser').click(); // open options
-    await page.getByRole('radio', { name: 'Штрих целиком' }).click();
+    await page.getByRole('radio', { name: 'Штрих', exact: true }).click();
     await page.keyboard.press('Escape');
     const box = (await page.getByTestId('drawing-surface').boundingBox())!;
     const y = box.y + Math.min(box.height * 0.3, 260) + 9;

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Activity, Download, HardDrive, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Segmented, Slider, Switch } from '@/components/ui/controls';
-import { useSettings, type ThemePref } from '@/store/settings';
+import { Slider, Switch } from '@/components/ui/controls';
+import { useSettings } from '@/store/settings';
+import { THEMES } from '@/lib/theme';
 import { useUI, errorMessage, navigate, toast } from '@/store/ui';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { pickFiles } from '@/lib/files';
@@ -44,15 +45,23 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           </DialogHeader>
 
           <Section title="Оформление">
-            <Segmented<ThemePref>
-              value={s.theme}
-              onChange={(v) => s.set('theme', v)}
-              options={[
-                { value: 'system', label: 'Системная' },
-                { value: 'light', label: 'Светлая' },
-                { value: 'dark', label: 'Тёмная' },
-              ]}
-            />
+            <div className="grid grid-cols-3 gap-2">
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => s.set('themeId', t.id)}
+                  aria-pressed={s.themeId === t.id}
+                  className={`flex flex-col items-center gap-1.5 rounded-md border p-2 text-[13px] transition-colors ${s.themeId === t.id ? 'border-primary bg-accent text-accent-foreground' : 'hover:bg-muted'}`}
+                >
+                  <span className="flex h-8 w-full overflow-hidden rounded-[8px] ring-1 ring-black/10">
+                    <span className="flex-1" style={{ background: t.swatch[0] }} />
+                    <span className="w-1/3" style={{ background: t.swatch[1] }} />
+                  </span>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[12px] text-muted-foreground">Тема меняет только интерфейс. Цвет бумаги, PDF и рисунки не перекрашиваются.</p>
           </Section>
 
           <Section title="Apple Pencil и ввод">

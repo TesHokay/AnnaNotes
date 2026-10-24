@@ -50,8 +50,85 @@
     color-scheme: dark;
   }
 
+  /* Neutral light with a blue accent */
+  .theme-light {
+    --background: 240 9% 96%;
+    --foreground: 240 6% 10%;
+    --surface: 0 0% 100%;
+    --canvas: 240 6% 90%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 6% 10%;
+    --primary: 211 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 6% 93%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 6% 93%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 211 100% 96%;
+    --accent-foreground: 211 100% 40%;
+    --border: 240 6% 88%;
+    --input: 240 6% 86%;
+    --ring: 211 100% 50%;
+  }
+
+  /* Warm paper: cream surfaces, sepia text, terracotta accent */
+  .theme-warm {
+    --background: 40 45% 94%;
+    --foreground: 28 25% 16%;
+    --surface: 42 60% 98%;
+    --canvas: 38 30% 87%;
+    --popover: 42 60% 98%;
+    --popover-foreground: 28 25% 16%;
+    --primary: 18 62% 52%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 38 35% 90%;
+    --secondary-foreground: 28 25% 18%;
+    --muted: 38 32% 90%;
+    --muted-foreground: 28 12% 42%;
+    --accent: 24 70% 92%;
+    --accent-foreground: 18 60% 36%;
+    --border: 36 25% 84%;
+    --input: 36 22% 80%;
+    --ring: 18 62% 52%;
+  }
+
+  /* Graphite: neutral dark grey with a cool accent */
+  .dark.theme-graphite {
+    --background: 220 6% 11%;
+    --foreground: 220 10% 94%;
+    --surface: 220 6% 16%;
+    --canvas: 220 5% 20%;
+    --popover: 220 6% 17%;
+    --popover-foreground: 220 10% 94%;
+    --primary: 199 70% 60%;
+    --primary-foreground: 220 20% 10%;
+    --secondary: 220 5% 22%;
+    --secondary-foreground: 220 10% 94%;
+    --muted: 220 5% 21%;
+    --muted-foreground: 220 6% 64%;
+    --accent: 199 35% 24%;
+    --accent-foreground: 199 80% 82%;
+    --border: 220 5% 26%;
+    --input: 220 5% 30%;
+    --ring: 199 70% 60%;
+  }
+
   * {
     @apply border-border;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  html {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
   }
 
   html,

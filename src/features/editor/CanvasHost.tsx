@@ -60,7 +60,7 @@ export function CanvasHost() {
     const unsubSettings = useSettings.subscribe((s, prev) => {
       if (s.tools !== prev.tools || s.smoothing !== prev.smoothing || s.calibration !== prev.calibration) engine.setConfig(toolConfigFrom(s));
       if (s.stylusOnly !== prev.stylusOnly) engine.setStylusOnly(s.stylusOnly);
-      if (s.theme !== prev.theme) requestAnimationFrame(() => engine.setCanvasColor(readCanvasColor()));
+      if (s.themeId !== prev.themeId) requestAnimationFrame(() => engine.setCanvasColor(readCanvasColor()));
     });
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const onScheme = () => requestAnimationFrame(() => engine.setCanvasColor(readCanvasColor()));

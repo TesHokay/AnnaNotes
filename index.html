@@ -15,6 +15,21 @@
     <title>AnnaNotes</title>
   </head>
   <body>
+    <script>
+      // Apply the saved theme before the app loads so the wrong theme never flashes.
+      (function () {
+        try {
+          var t = localStorage.getItem('annanotes-theme') || 'system';
+          var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var id = t === 'system' ? (dark ? 'dark' : 'pink') : t;
+          var c = document.documentElement.classList;
+          if (id === 'dark' || id === 'graphite') c.add('dark');
+          if (id === 'light') c.add('theme-light');
+          if (id === 'warm') c.add('theme-warm');
+          if (id === 'graphite') c.add('theme-graphite');
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -7,27 +7,23 @@ import { toStorageError } from '@/db/errors';
 import { LibraryView } from '@/features/library/LibraryView';
 import { useSettings } from '@/store/settings';
 import { initUIListeners, useUI } from '@/store/ui';
+import { applyTheme } from '@/lib/theme';
 
 const DiagnosticsView = lazy(() => import('@/features/diagnostics/DiagnosticsView').then((m) => ({ default: m.DiagnosticsView })));
 const EditorView = lazy(() => import('@/features/editor/EditorView').then((m) => ({ default: m.EditorView })));
 
 function useTheme() {
-  const theme = useSettings((s) => s.theme);
+  const theme = useSettings((s) => s.themeId);
+  const loaded = useSettings((s) => s.loaded);
   useEffect(() => {
+    // Before settings load, keep what the inline script in index.html applied (no flash).
+    if (!loaded) return;
+    applyTheme(theme);
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const dark = theme === 'dark' || (theme === 'system' && mq.matches);
-      document.documentElement.classList.toggle('dark', dark);
-      document.querySelector('meta[name="theme-color"]:not([media])')?.remove();
-      const meta = document.createElement('meta');
-      meta.name = 'theme-color';
-      meta.content = dark ? '#161013' : '#fcf1f5';
-      document.head.appendChild(meta);
-    };
-    apply();
-    mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
-  }, [theme]);
+    const onChange = () => theme === 'system' && applyTheme(theme);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [theme, loaded]);
 }
 
 function Splash() {

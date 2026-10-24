@@ -4,8 +4,9 @@ import { setSetting } from '@/db/repo';
 import { DEFAULT_CALIBRATION, type PressureCalibration } from '@/engine/pressure';
 import type { ToolConfig } from '@/engine/tools';
 import type { PenStyle } from '@/model/types';
+import type { ThemeId } from '@/lib/theme';
 
-export type ThemePref = 'system' | 'light' | 'dark';
+export type ThemePref = ThemeId;
 export type SortKey = 'updated' | 'created' | 'title' | 'opened';
 
 export type ToolSettings = Omit<ToolConfig, 'smoothing' | 'calibration'>;
@@ -54,7 +55,8 @@ export const DEFAULT_TOOLS: ToolSettings = {
 
 export interface SettingsState {
   loaded: boolean;
-  theme: ThemePref;
+  /** Stored under its own key so the pre-v2 'light/dark' values are not misread. */
+  themeId: ThemePref;
   stylusOnly: boolean;
   calibration: PressureCalibration;
   smoothing: number;
@@ -71,7 +73,7 @@ export interface SettingsState {
 }
 
 const DEFAULTS: Omit<SettingsState, 'loaded'> = {
-  theme: 'system',
+  themeId: 'system',
   stylusOnly: true,
   calibration: DEFAULT_CALIBRATION,
   smoothing: 0.5,

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { AlertTriangle, Loader2 } from 'lucide-react';
 import { Onboarding } from '@/components/app/Onboarding';
 import { Toaster } from '@/components/app/Toaster';
@@ -9,6 +9,7 @@ import { LibraryView } from '@/features/library/LibraryView';
 import { useSettings } from '@/store/settings';
 import { initUIListeners, useUI } from '@/store/ui';
 import { applyTheme } from '@/lib/theme';
+import { SplashScreen, SPLASH_LANG } from '@/features/splash/SplashScreen';
 
 const DiagnosticsView = lazy(() => import('@/features/diagnostics/DiagnosticsView').then((m) => ({ default: m.DiagnosticsView })));
 const EditorView = lazy(() => import('@/features/editor/EditorView').then((m) => ({ default: m.EditorView })));
@@ -39,6 +40,7 @@ export function App() {
   const route = useUI((s) => s.route);
   const dbError = useUI((s) => s.dbError);
   const loaded = useSettings((s) => s.loaded);
+  const [splash, setSplash] = useState(SPLASH_LANG);
   useTheme();
 
   useEffect(() => {
@@ -82,6 +84,7 @@ export function App() {
       ) : (
         <LibraryView />
       )}
+      {splash && <SplashScreen lang={splash} onDone={() => setSplash(null)} />}
       <ImportDialog />
       <Onboarding />
       <Toaster />

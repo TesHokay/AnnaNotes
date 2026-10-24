@@ -40,6 +40,7 @@ const b = await chromium.launch();
 let total = 0;
 for (const size of sizes) {
   const p = await b.newPage({ viewport: { width: size.width, height: size.height }, hasTouch: true });
+  await p.addInitScript(() => localStorage.setItem('annanotes-splash', 'off'));
   await p.goto(base);
   await p.getByRole('button', { name: 'Пропустить' }).click({ timeout: 8000 }).catch(() => {});
   const report = async (name) => {

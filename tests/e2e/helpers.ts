@@ -1,6 +1,8 @@
 import { expect, type Page } from '@playwright/test';
 
 export async function openFresh(page: Page): Promise<void> {
+  // The launch animation is covered by its own test; keep it out of the way here.
+  await page.addInitScript(() => localStorage.setItem('annanotes-splash', 'off'));
   await page.goto('/');
   const skip = page.getByRole('button', { name: 'Пропустить' });
   if (await skip.waitFor({ state: 'visible', timeout: 8_000 }).then(() => true, () => false)) {

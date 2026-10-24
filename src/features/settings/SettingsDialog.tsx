@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Slider, Switch } from '@/components/ui/controls';
 import { useSettings } from '@/store/settings';
 import { THEMES } from '@/lib/theme';
+import { isSplashEnabled, setSplashEnabled } from '@/features/splash/shuffleBag';
 import { useUI, errorMessage, navigate, toast } from '@/store/ui';
 import { formatBytes, formatDate } from '@/lib/utils';
 import { pickFiles } from '@/lib/files';
@@ -17,6 +18,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const s = useSettings();
   const persisted = useUI((u) => u.storagePersisted);
   const offlineReady = useUI((u) => u.offlineReady);
+  const [splashOn, setSplashOn] = useState(isSplashEnabled);
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [restore, setRestore] = useState<ParsedBackup | null>(null);
@@ -61,6 +63,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </button>
               ))}
             </div>
+            <Switch checked={splashOn} onChange={(v) => { setSplashEnabled(v); setSplashOn(v); }} label="Анимация при запуске" description="Каллиграфическая надпись «Я тебя люблю» на одном из семи языков" />
             <p className="text-[12px] text-muted-foreground">Тема меняет только интерфейс. Цвет бумаги, PDF и рисунки не перекрашиваются.</p>
           </Section>
 

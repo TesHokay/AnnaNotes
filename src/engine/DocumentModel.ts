@@ -24,6 +24,8 @@ export interface ApplyOptions {
   history: string | null;
   /** Write the change to storage. */
   persist: boolean;
+  /** Merge with the previous history entry of the same key (slider drags). */
+  mergeKey?: string;
 }
 
 let zCounter = 0;
@@ -165,7 +167,7 @@ export class DocumentModel {
         for (const el of added) idx.insert(el);
       }
     }
-    if (opts.history) this.history.push({ label: opts.history, removed: change.removed, added: change.added });
+    if (opts.history) this.history.push({ label: opts.history, removed: change.removed, added: change.added, mergeKey: opts.mergeKey });
     if (opts.persist) {
       const addedIds = new Set(change.added.map((e) => e.id));
       this.persistence.enqueue(

@@ -1,7 +1,8 @@
-import { BlendMode, PDFDocument, PDFPage, concatTransformationMatrix, popGraphicsState, pushGraphicsState, rgb, type RGB } from 'pdf-lib';
+import { BlendMode, LineCapStyle, PDFDocument, PDFPage, concatTransformationMatrix, popGraphicsState, pushGraphicsState, rgb, type RGB } from 'pdf-lib';
 import { strokeOutline, polygonToSvgPath } from '@/engine/outline';
 import { isDarkPaper, TEMPLATE_SPACING } from '@/model/paper';
-import type { Asset, ImageElement, Page, PageElement, StrokeElement, TextElement, UUID } from '@/model/types';
+import type { Asset, ImageElement, Page, PageElement, ShapeElement, StrokeElement, TextElement, UUID } from '@/model/types';
+import { isClosedShape, shapeSvgPath } from '@/engine/shapeElement';
 import { flippedDocMatrix, normalizeRotation, type Matrix6 } from './coords';
 import { visibleBox } from './importPdf';
 
@@ -70,6 +71,17 @@ function drawStroke(page: PDFPage, s: StrokeElement): void {
   });
 }
 
+function drawShape(page: PDFPage, s: ShapeElement): void {
+  if (s.fill && isClosedShape(s.kind)) {
+    const fill = shapeSvgPath(s, true);
+    if (fill) page.drawSvgPath(fill, { x: 0, y: 0, color: hexToRgb(s.fill), opacity: s.opacity });
+  }
+  const d = shapeSvgPath(s);
+  if (d && s.strokeWidth > 0) {
+    page.drawSvgPath(d, { x: 0, y: 0, borderColor: hexToRgb(s.stroke), borderWidth: s.strokeWidth, borderOpacity: s.opacity, borderLineCap: LineCapStyle.Round });
+  }
+}
+
 /** Draws a box element (image/text bitmap) in flipped document space, honouring rotation. */
 function drawBox(page: PDFPage, el: ImageElement | TextElement, draw: (x: number, y: number, w: number, h: number) => void): void {
   const cx = el.x + el.width / 2;
@@ -135,11 +147,12 @@ export async function exportNotebookPdf(pages: readonly Page[], deps: ExportDeps
       const ordered = [
         ...elements.filter((e) => e.type === 'image'),
         ...elements.filter((e) => e.type === 'stroke' && e.tool === 'highlighter'),
-        ...elements.filter((e) => e.type === 'stroke' && e.tool !== 'highlighter'),
+        ...elements.filter((e) => (e.type === 'stroke' && e.tool !== 'highlighter') || e.type === 'shape').sort((a, b) => a.z - b.z),
         ...elements.filter((e) => e.type === 'text'),
       ];
       for (const el of ordered) {
         if (el.type === 'stroke') drawStroke(page, el);
+        else if (el.type === 'shape') drawShape(page, el);
         else if (el.type === 'image') {
           let img = images.get(el.assetId);
           if (img === undefined) {

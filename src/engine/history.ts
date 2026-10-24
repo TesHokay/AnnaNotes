@@ -11,6 +11,9 @@ export interface ChangeSet {
 
 export interface Command extends ChangeSet {
   label: string;
+  /** Commands with the same key pushed in quick succession merge into one undo step. */
+  mergeKey?: string;
+  at?: number;
 }
 
 export function invertChange(c: ChangeSet): ChangeSet {
@@ -35,7 +38,16 @@ export class History {
 
   push(cmd: Command): void {
     if (isEmptyChange(cmd)) return;
-    this.undoStack.push({ label: cmd.label, removed: cmd.removed.map(cloneElement), added: cmd.added.map(cloneElement) });
+    const now = Date.now();
+    const top = this.undoStack[this.undoStack.length - 1];
+    if (cmd.mergeKey && top && top.mergeKey === cmd.mergeKey && now - (top.at ?? 0) < 1500) {
+      // Keep the state before the first change, take the latest state as the result.
+      top.added = cmd.added.map(cloneElement);
+      top.at = now;
+      this.redoStack = [];
+      return;
+    }
+    this.undoStack.push({ label: cmd.label, removed: cmd.removed.map(cloneElement), added: cmd.added.map(cloneElement), mergeKey: cmd.mergeKey, at: now });
     if (this.undoStack.length > this.limit) this.undoStack.shift();
     this.redoStack = [];
   }

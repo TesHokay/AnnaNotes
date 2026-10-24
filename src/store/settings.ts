@@ -11,6 +11,7 @@ export type SortKey = 'updated' | 'created' | 'title' | 'opened';
 export type ToolSettings = Omit<ToolConfig, 'smoothing' | 'calibration'>;
 
 export const PEN_COLORS = ['#1c1c1e', '#0a84ff', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#8e8e93', '#ffffff', '#5856d6', '#a2845e', '#ff2d55', '#00c7be'];
+export const SHAPE_FILLS = ['#fde2ec', '#f8c8dc', '#ffe8b8', '#d9f2e3', '#d8e8fb', '#e6dcfa', '#1c1c1e', '#ffffff'];
 export const HIGHLIGHTER_COLORS = ['#ffd60a', '#a4f06d', '#5ac8fa', '#ff9fd1', '#ffb340', '#c7a4ff'];
 
 export type PenParams = Pick<ToolSettings['pen'], 'width' | 'opacity' | 'stabilization'>;
@@ -47,7 +48,7 @@ export const DEFAULT_TOOLS: ToolSettings = {
   highlighter: { color: '#ffd60a', width: 14, opacity: 0.38, snapToText: true },
   eraser: { mode: 'partial', size: 24 },
   lasso: { mode: 'free' },
-  shape: { kind: 'auto', color: '#1c1c1e', width: 2 },
+  shape: { kind: 'auto', color: '#1c1c1e', width: 2, fill: null, opacity: 1 },
   text: { fontFamily: 'system', fontSize: 16, color: '#1c1c1e', align: 'left' },
 };
 
@@ -178,7 +179,7 @@ function mergeTools(saved: Partial<ToolSettings>): ToolSettings {
     highlighter: { ...d.highlighter, ...saved.highlighter },
     eraser: { ...d.eraser, ...saved.eraser },
     lasso: { ...d.lasso, ...saved.lasso },
-    shape: { ...d.shape, ...saved.shape },
+    shape: { ...d.shape, ...saved.shape, kind: (saved.shape?.kind as string) === 'circle' ? 'ellipse' : (saved.shape?.kind ?? d.shape.kind) },
     text: { ...d.text, ...saved.text },
   };
 }

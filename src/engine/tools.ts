@@ -1,5 +1,5 @@
 import { uuid } from '@/lib/id';
-import type { BBox, PageElement, PenStyle, ShapeKind, StrokeElement, StrokePoint, StrokeTool, TextAlign, FontFamilyKey, UUID } from '@/model/types';
+import type { BBox, PageElement, PenStyle, ShapeElement, ShapeElementKind, ShapeKind, StrokeElement, StrokePoint, StrokeTool, TextAlign, FontFamilyKey, UUID } from '@/model/types';
 import type { DocumentModel } from './DocumentModel';
 import { nextZ } from './DocumentModel';
 import { eraseStrokePartially, strokeHitBySweep } from './eraser';
@@ -15,6 +15,7 @@ import {
   elementBBox,
   isEmptyBBox,
   multiply,
+  pathLength as pathLengthOf,
   pointInPolygon,
   rotatedRectCorners,
   rotationAbout,
@@ -30,7 +31,8 @@ import type { ChangeSet } from './history';
 import { computeWidths, outlinePolygon, strokeOutline, tracePolygon, widthProfile } from './outline';
 import { normalizePressure, PressureDetector, SimulatedPressure, type PressureCalibration } from './pressure';
 import { drawElements, strokeFillStyle, type ImageResolver } from './renderer';
-import { isNearlyStraight, recognizeShape, shapePoints } from './shapes';
+import { isNearlyStraight, rdp, recognizeShape, shapePoints } from './shapes';
+import { drawShapeElement, hitShape, shapeFromDrag, shapeFromPolygon } from './shapeElement';
 import { AdaptiveSmoother, isOutlier } from './smoothing';
 import { snapHighlightToText, type TextRun } from '@/pdf/textLayer';
 
@@ -42,7 +44,7 @@ export interface ToolConfig {
   highlighter: { color: string; width: number; opacity: number; snapToText: boolean };
   eraser: { mode: 'stroke' | 'partial' | 'object'; size: number };
   lasso: { mode: 'free' | 'rect' };
-  shape: { kind: ShapeKind | 'auto'; color: string; width: number };
+  shape: { kind: ShapeElementKind | 'auto'; color: string; width: number; fill: string | null; opacity: number };
   text: { fontFamily: FontFamilyKey; fontSize: number; color: string; align: TextAlign };
   smoothing: number;
   calibration: PressureCalibration;
@@ -112,7 +114,30 @@ export function transformElement(el: PageElement, m: Matrix): PageElement {
   const h = el.height * scale;
   const base = { ...el, x: c.x - w / 2, y: c.y - h / 2, width: w, height: h, rotation: el.rotation + rotation };
   if (el.type === 'text') return { ...base, type: 'text', fontSize: el.fontSize * scale } as PageElement;
+  if (el.type === 'shape') {
+    return { ...base, type: 'shape', points: el.points?.map((p) => ({ x: p.x * scale, y: p.y * scale })), strokeWidth: el.strokeWidth * scale, cornerRadius: el.cornerRadius !== undefined ? el.cornerRadius * scale : undefined } as PageElement;
+  }
   return base as PageElement;
+}
+
+/** New shape element with the current shape tool style. */
+export function makeShape(ctx: ToolContext, pageId: UUID, geom: Pick<ShapeElement, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points'>): ShapeElement {
+  const c = ctx.config.shape;
+  return {
+    id: uuid(),
+    type: 'shape',
+    pageId,
+    notebookId: ctx.model.notebookId,
+    createdAt: Date.now(),
+    z: nextZ(),
+    rotation: 0,
+    stroke: c.color,
+    strokeWidth: c.width,
+    opacity: c.opacity,
+    fill: geom.kind === 'line' || geom.kind === 'arrow' ? null : c.fill,
+    cornerRadius: geom.kind === 'roundedRect' ? 14 : undefined,
+    ...geom,
+  };
 }
 
 /** Topmost element under a point (page coords), with a tolerance in document units. */
@@ -126,6 +151,8 @@ export function hitTestElement(elements: readonly PageElement[], p: Vec, toleran
       const pts = el.points;
       if (pts.length === 1 && dist(p, pts[0]!) <= reach) return el;
       for (let k = 1; k < pts.length; k++) if (distPointSegment(p, pts[k - 1]!, pts[k]!) <= reach) return el;
+    } else if (el.type === 'shape') {
+      if (hitShape(el, p, tolerance)) return el;
     } else if (pointInPolygon(p, rotatedRectCorners(el.x, el.y, el.width, el.height, el.rotation))) {
       return el;
     }
@@ -286,8 +313,36 @@ export class InkAction implements Action {
     return [make(this.points)];
   }
 
+  /** Auto-shape tool: freehand → editable vector shape (recognised, or freeform when closed). */
+  private buildAutoShape(): ShapeElement | null {
+    if (this.points.length < 3) return null;
+    const first = this.points[0]!;
+    const last = this.points[this.points.length - 1]!;
+    const rec = recognizeShape(this.points);
+    const box = (pts: readonly Vec[]) => bboxFromPoints(pts);
+    let geom: Pick<ShapeElement, 'kind' | 'x' | 'y' | 'width' | 'height' | 'points'> | null = null;
+    if (rec) {
+      const b = box(rec.strokes.flat());
+      if (rec.kind === 'line') geom = shapeFromDrag('line', first, last, false);
+      else if (rec.kind === 'rectangle') geom = { kind: 'rectangle', x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY };
+      else if (rec.kind === 'circle' || rec.kind === 'ellipse') geom = { kind: 'ellipse', x: b.minX, y: b.minY, width: b.maxX - b.minX, height: b.maxY - b.minY };
+      else if (rec.kind === 'triangle' && rec.vertices) geom = shapeFromPolygon('triangle', rec.vertices);
+    } else if (dist(first, last) < Math.max(18, pathLengthOf(this.points) * 0.12)) {
+      geom = shapeFromPolygon('freeform', rdp([...this.points, first], 1.2).slice(0, -1));
+    }
+    return geom ? makeShape(this.ctx, this.pageId, geom) : null;
+  }
+
   end(cancelled: boolean): void {
     if (this.holdTimer) clearTimeout(this.holdTimer);
+    if (this.mode === 'auto-shape' && !cancelled) {
+      const shape = this.buildAutoShape();
+      if (shape) {
+        this.ctx.model.apply({ removed: [], added: [shape] }, { history: 'Фигура', persist: true });
+        this.ctx.setSelection({ pageId: this.pageId, ids: [shape.id], bbox: selectionBBox([shape]) });
+        return;
+      }
+    }
     if (!this.snapped && this.lastRaw) {
       this.points.push(...this.smoother.finish(this.toPoint(this.lastRaw), this.points[this.points.length - 2]));
     }
@@ -359,7 +414,7 @@ export class EraserAction implements Action {
     for (const el of candidates) {
       if (mode === 'object') {
         if (el.type === 'stroke' && el.tool !== 'shape') continue;
-        const hit = el.type === 'stroke' ? strokeHitBySweep(el, sweep) : hitTestElement([el], to, r) !== null;
+        const hit = el.type === 'stroke' ? strokeHitBySweep(el, sweep) : hitTestElement([el], to, r) !== null || hitTestElement([el], sweep.from, r) !== null;
         if (hit) {
           if (added.has(el.id)) added.delete(el.id);
           else removed.set(el.id, el);
@@ -458,13 +513,13 @@ export class ShapeAction implements Action {
     private readonly ctx: ToolContext,
     readonly pageId: UUID,
     private readonly start: Sample,
-    private readonly kind: ShapeKind,
+    private readonly kind: ShapeElementKind,
   ) {
     this.end_ = start;
   }
 
-  private strokes(): StrokePoint[][] {
-    return shapePoints(this.kind, this.start, this.end_, this.constrain, Math.max(10, this.ctx.config.shape.width * 4));
+  private preview(): ShapeElement {
+    return makeShape(this.ctx, this.pageId, shapeFromDrag(this.kind, this.start, this.end_, this.constrain));
   }
 
   move(samples: Sample[], _p: Sample[], mods: { shift: boolean }): void {
@@ -474,37 +529,25 @@ export class ShapeAction implements Action {
     this.ctx.requestOverlay();
   }
 
-  end(): void {
-    if (dist(this.start, this.end_) * this.ctx.scale() < 4) return;
-    const c = this.ctx.config.shape;
-    const now = Date.now();
-    const strokes: StrokeElement[] = this.strokes().map((points) => ({
-      id: uuid(),
-      type: 'stroke',
-      pageId: this.pageId,
-      notebookId: this.ctx.model.notebookId,
-      createdAt: now,
-      z: nextZ(),
-      tool: 'shape',
-      penStyle: 'ball',
-      color: c.color,
-      baseWidth: c.width,
-      opacity: 1,
-      points,
-      boundingBox: strokeBBox(points, c.width),
-      shape: this.kind,
-    }));
-    this.ctx.model.apply({ removed: [], added: strokes }, { history: 'Фигура', persist: true });
+  end(cancelled: boolean): void {
+    if (cancelled) return;
+    if (dist(this.start, this.end_) * this.ctx.scale() < 4) {
+      // A tap with the shape tool selects an existing shape for editing.
+      const els = (this.ctx.model.getElements(this.pageId) ?? []).filter((e) => e.type === 'shape' || (e.type === 'stroke' && e.tool === 'shape'));
+      const hit = hitTestElement(els, this.start, 8 / this.ctx.scale());
+      if (hit) this.ctx.setSelection({ pageId: this.pageId, ids: [hit.id], bbox: selectionBBox([hit]) });
+      return;
+    }
+    const shape = this.preview();
+    this.ctx.model.apply({ removed: [], added: [shape] }, { history: 'Фигура', persist: true });
+    // Newly drawn shapes are selected right away with resize/rotate handles and the style panel.
+    this.ctx.setSelection({ pageId: this.pageId, ids: [shape.id], bbox: selectionBBox([shape]) });
   }
 
   abort(): void {}
 
   drawOverlay(ctx: CanvasRenderingContext2D): void {
-    const c = this.ctx.config.shape;
-    const path = new Path2D();
-    for (const pts of this.strokes()) tracePolygon(path, outlinePolygon(pts, computeWidths(pts, c.width, widthProfile('shape', 'ball'))));
-    ctx.fillStyle = c.color;
-    ctx.fill(path);
+    drawShapeElement(ctx, this.preview());
   }
 }
 

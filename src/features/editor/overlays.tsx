@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Check, Copy, CopyPlus, Maximize2, Minus, Plus, Scissors, Trash2, Type } from 'lucide-react';
+import { BringToFront, Check, Copy, CopyPlus, Maximize2, Minus, Plus, Scissors, SendToBack, Trash2, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ColorSwatch, Input } from '@/components/ui/controls';
+import { ColorSwatch, Input, Label, Slider } from '@/components/ui/controls';
+import type { SelectionInfo } from '@/engine/DrawingEngine';
+import { cn } from '@/lib/utils';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/menu';
 import { FONT_STACKS, LINE_HEIGHT, TEXT_PADDING } from '@/engine/text';
 import { useSession } from '@/editor/session';
 import type { TextElement } from '@/model/types';
 import { useEditor } from '@/store/editor';
-import { PEN_COLORS, useSettings } from '@/store/settings';
+import { PEN_COLORS, SHAPE_FILLS, useSettings } from '@/store/settings';
 import { TextOptions } from './Toolbar';
 
 /** Floating actions for the lasso selection, positioned above (or below) the selection box. */
@@ -40,7 +42,18 @@ export function SelectionBar() {
       onPointerDown={(ev) => ev.stopPropagation()}
       data-testid="selection-bar"
     >
-      {(sel.hasStrokes || sel.hasText) && (
+      {sel.shape && <ShapeStylePopover shape={sel.shape} />}
+      {sel.shape && (
+        <>
+          <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="На передний план" title="На передний план" onClick={() => e?.arrangeSelection('front')}>
+            <BringToFront className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="На задний план" title="На задний план" onClick={() => e?.arrangeSelection('back')}>
+            <SendToBack className="h-4 w-4" />
+          </Button>
+        </>
+      )}
+      {(sel.hasStrokes || sel.hasText) && !sel.shape && (
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="sm" className="rounded-full" aria-label="Цвет выделенного">
@@ -74,6 +87,58 @@ export function SelectionBar() {
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>
+  );
+}
+
+function ShapeStylePopover({ shape }: { shape: NonNullable<SelectionInfo['shape']> }) {
+  const session = useSession();
+  const e = session.engine;
+  const closed = shape.kind !== 'line' && shape.kind !== 'arrow';
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="ghost" size="sm" className="rounded-full" aria-label="Стиль фигуры" data-testid="shape-style">
+          <span className="h-5 w-5 rounded-full border-[3px]" style={{ borderColor: shape.stroke, background: shape.fill ?? 'transparent' }} />
+          Стиль
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80" onOpenAutoFocus={(ev) => ev.preventDefault()}>
+        <div className="flex flex-col gap-4">
+          <div>
+            <Label>Обводка</Label>
+            <div className="grid grid-cols-6 gap-2">
+              {PEN_COLORS.map((c) => (
+                <ColorSwatch key={c} color={c} active={shape.stroke.toLowerCase() === c} onClick={() => e?.updateSelectedShapes({ stroke: c })} />
+              ))}
+            </div>
+          </div>
+          {closed && (
+            <div>
+              <Label>Заливка</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => e?.updateSelectedShapes({ fill: null })}
+                  aria-pressed={shape.fill === null}
+                  className={cn('h-8 rounded-full border px-3 text-[12px]', shape.fill === null && 'border-primary bg-accent text-accent-foreground')}
+                  data-testid="fill-none"
+                >
+                  Нет
+                </button>
+                {SHAPE_FILLS.map((c) => (
+                  <ColorSwatch key={c} color={c} active={shape.fill === c} onClick={() => e?.updateSelectedShapes({ fill: c })} label={`Заливка ${c}`} />
+                ))}
+                <label className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full border" title="Свой цвет" style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}>
+                  <input type="color" value={shape.fill ?? '#ffffff'} onChange={(ev) => e?.updateSelectedShapes({ fill: ev.target.value })} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Свой цвет заливки" />
+                </label>
+              </div>
+            </div>
+          )}
+          <Slider label="Толщина обводки" min={0} max={16} step={0.5} value={shape.strokeWidth} onChange={(v) => e?.updateSelectedShapes({ strokeWidth: v })} />
+          <Slider label="Непрозрачность" min={10} max={100} value={Math.round(shape.opacity * 100)} onChange={(v) => e?.updateSelectedShapes({ opacity: v / 100 })} format={(v) => `${v}%`} />
+          {shape.kind === 'roundedRect' && <Slider label="Скругление углов" min={0} max={80} value={Math.round(shape.cornerRadius ?? 14)} onChange={(v) => e?.updateSelectedShapes({ cornerRadius: v })} />}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

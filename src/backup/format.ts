@@ -106,6 +106,8 @@ export function validateManifest(raw: unknown): BackupManifest {
       if (!isStr(e.text) || !isNum(e.x) || !isNum(e.y) || !isNum(e.width) || !isNum(e.fontSize)) problems.push(`текст #${i}`);
     } else if (e.type === 'image') {
       if (!isStr(e.assetId) || !assetIds.has(e.assetId) || !isNum(e.width) || !isNum(e.height)) problems.push(`изображение #${i}`);
+    } else if (e.type === 'shape') {
+      if (!isStr(e.kind) || !isNum(e.x) || !isNum(e.y) || !isNum(e.width) || !isNum(e.height) || !isStr(e.stroke) || !isNum(e.strokeWidth)) problems.push(`фигура #${i}`);
     } else problems.push(`элемент #${i}: неизвестный тип`);
   });
   if (problems.length) throw new BackupValidationError(problems);

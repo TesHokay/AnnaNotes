@@ -1,5 +1,6 @@
 import { isDarkPaper, TEMPLATE_SPACING } from '@/model/paper';
-import type { BBox, ImageElement, Page, PageElement, StrokeElement, TextElement } from '@/model/types';
+import type { BBox, ImageElement, Page, PageElement, ShapeElement, StrokeElement, TextElement } from '@/model/types';
+import { drawShapeElement } from './shapeElement';
 import { bboxIntersects, elementBBox } from './geometry';
 import type { DecodedImage } from './imageCache';
 import { strokeOutline, tracePolygon } from './outline';
@@ -186,19 +187,23 @@ export interface DrawElementsOptions {
 export function drawElements(ctx: CanvasRenderingContext2D, elements: readonly PageElement[], opts: DrawElementsOptions): void {
   const images: ImageElement[] = [];
   const highlights: StrokeElement[] = [];
-  const ink: StrokeElement[] = [];
+  const ink: (StrokeElement | ShapeElement)[] = [];
   const texts: TextElement[] = [];
   for (const el of elements) {
     if (opts.skip?.has(el.id)) continue;
     if (opts.region && !bboxIntersects(elementBBox(el), opts.region)) continue;
     if (el.type === 'image') images.push(el);
     else if (el.type === 'text') texts.push(el);
+    else if (el.type === 'shape') ink.push(el);
     else if (el.tool === 'highlighter') highlights.push(el);
     else ink.push(el);
   }
   for (const el of images) drawImageElement(ctx, el, opts.resolveImage);
   if (highlights.length) drawHighlighterLayer(ctx, highlights, opts.region);
-  for (const s of ink) drawStroke(ctx, s);
+  for (const s of ink) {
+    if (s.type === 'shape') drawShapeElement(ctx, s);
+    else drawStroke(ctx, s);
+  }
   for (const t of texts) drawTextElement(ctx, t);
 }
 

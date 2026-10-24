@@ -1,4 +1,5 @@
 import type { BBox, ImageElement, PageElement, StrokePoint, TextElement } from '@/model/types';
+import { shapeBBox } from './shapeElement';
 
 export interface Vec {
   x: number;
@@ -179,7 +180,9 @@ export function boxElementBBox(el: TextElement | ImageElement): BBox {
 }
 
 export function elementBBox(el: PageElement): BBox {
-  return el.type === 'stroke' ? el.boundingBox : boxElementBBox(el);
+  if (el.type === 'stroke') return el.boundingBox;
+  if (el.type === 'shape') return shapeBBox(el);
+  return boxElementBBox(el);
 }
 
 /** Polygon area via the shoelace formula (absolute). */

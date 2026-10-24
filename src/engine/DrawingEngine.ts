@@ -1,5 +1,10 @@
 import { uuid } from '@/lib/id';
-import type { BBox, Page, PageElement, TextElement, UUID } from '@/model/types';
+import type { BBox, Page, PageElement, ShapeElement, TextElement, UUID } from '@/model/types';
+import { BoxResizeAction, drawOrientedFrame, hitBoxHandles, isBoxElement, type BoxElement } from './boxEdit';
+
+function pickShapeStyle(e: ShapeElement): NonNullable<SelectionInfo['shape']> {
+  return { kind: e.kind, stroke: e.stroke, fill: e.fill, strokeWidth: e.strokeWidth, opacity: e.opacity, cornerRadius: e.cornerRadius };
+}
 import { nextZ, type DocumentModel, type ModelChange } from './DocumentModel';
 import { bboxContains, bboxInflate, bboxIntersects, elementBBox, isEmptyBBox, translation, type Vec } from './geometry';
 import type { ImageCache } from './imageCache';
@@ -33,7 +38,11 @@ export interface SelectionInfo {
   screenRect: { x: number; y: number; width: number; height: number };
   hasStrokes: boolean;
   hasText: boolean;
+  /** Style of the selected vector shapes (present when the selection contains only shapes). */
+  shape?: Pick<ShapeElement, 'kind' | 'stroke' | 'fill' | 'strokeWidth' | 'opacity' | 'cornerRadius'>;
 }
+
+export type ShapeStylePatch = Partial<Pick<ShapeElement, 'stroke' | 'fill' | 'strokeWidth' | 'opacity' | 'cornerRadius'>>;
 
 export interface TextEditRequest {
   element: TextElement;
@@ -339,9 +348,9 @@ export class DrawingEngine {
 
   recolorSelection(color: string): void {
     const els = this.selectedElements();
-    const changed = els.filter((e) => e.type !== 'image' && e.color !== color);
+    const changed = els.filter((e) => (e.type === 'shape' ? e.stroke !== color : e.type !== 'image' && e.color !== color));
     if (!changed.length || !this.selection) return;
-    const updated = changed.map((e) => ({ ...e, color }) as PageElement);
+    const updated = changed.map((e) => (e.type === 'shape' ? { ...e, stroke: color } : { ...e, color }) as PageElement);
     this.model.apply({ removed: changed, added: updated }, { history: 'Цвет', persist: true });
     this.emitSelection(true);
   }
@@ -552,7 +561,37 @@ export class DrawingEngine {
       screenRect: { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y },
       hasStrokes: els.some((e) => e.type === 'stroke'),
       hasText: els.some((e) => e.type === 'text'),
+      shape: els.length && els.every((e) => e.type === 'shape') ? pickShapeStyle(els[0] as ShapeElement) : undefined,
     });
+  }
+
+  /** The selection is exactly one shape or image: edited with an oriented frame. */
+  private singleBox(): BoxElement | null {
+    const sel = this.selection;
+    if (!sel || sel.ids.length !== 1) return null;
+    const el = this.model.getElement(sel.pageId, sel.ids[0]!);
+    return isBoxElement(el) ? el : null;
+  }
+
+  /** Restyle selected shapes. Consecutive slider changes merge into one undo step. */
+  updateSelectedShapes(patch: ShapeStylePatch): void {
+    const els = this.selectedElements().filter((e): e is ShapeElement => e.type === 'shape');
+    if (!els.length) return;
+    const updated = els.map((e) => ({ ...e, ...patch }));
+    this.model.apply({ removed: els, added: updated }, { history: 'Стиль фигуры', persist: true, mergeKey: `style:${els.map((e) => e.id).join(',')}:${Object.keys(patch).join(',')}` });
+    this.emitSelection(true);
+  }
+
+  /** Bring the selection to the front or send it to the back of the page. */
+  arrangeSelection(where: 'front' | 'back'): void {
+    const sel = this.selection;
+    const els = this.selectedElements();
+    if (!sel || !els.length) return;
+    const all = this.model.getElements(sel.pageId) ?? [];
+    const minZ = all.reduce((m, e) => Math.min(m, e.z), Infinity);
+    const ordered = [...els].sort((a, b) => a.z - b.z);
+    const updated = ordered.map((e, i) => ({ ...e, z: where === 'front' ? nextZ() : minZ - ordered.length + i }) as PageElement);
+    this.model.apply({ removed: els, added: updated }, { history: where === 'front' ? 'На передний план' : 'На задний план', persist: true });
   }
 
   // ================================================================ internals: events
@@ -709,7 +748,19 @@ export class DrawingEngine {
       const slot = this.slotOf(this.selection.pageId);
       if (slot) {
         const local = { x: doc.x - slot.x, y: doc.y - slot.y };
-        const handle = hitSelectionHandle(this.selection, local, scale);
+        const box = this.singleBox();
+        if (box) {
+          const hit = hitBoxHandles(box, local, scale);
+          if (hit?.kind === 'resize') {
+            this.beginAction(new BoxResizeAction(this.context(), box, hit.handle, this.makeSample(e, slot)), e);
+            return;
+          }
+          if (hit) {
+            this.beginAction(new TransformAction(this.context(), this.selection, hit.kind === 'rotate' ? 'rotate' : 'move', this.makeSample(e, slot)), e);
+            return;
+          }
+        }
+        const handle = box ? null : hitSelectionHandle(this.selection, local, scale);
         if (handle) {
           this.beginAction(new TransformAction(this.context(), this.selection, handle, this.makeSample(e, slot)), e);
           return;
@@ -1435,7 +1486,9 @@ export class DrawingEngine {
       if (slot) {
         ctx.save();
         pageTransform(slot);
-        drawSelectionFrame(ctx, this.selection.bbox, s);
+        const box = this.singleBox();
+        if (box) drawOrientedFrame(ctx, box, s);
+        else drawSelectionFrame(ctx, this.selection.bbox, s);
         ctx.restore();
       }
     }

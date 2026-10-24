@@ -5,6 +5,7 @@ import {
   AlignRight,
   ArrowUpRight,
   Circle,
+  Hexagon,
   Eraser,
   Highlighter,
   ImagePlus,
@@ -28,9 +29,9 @@ import { useSession } from '@/editor/session';
 import { pickFiles } from '@/lib/files';
 import { prepareImage } from '@/lib/images';
 import { cn } from '@/lib/utils';
-import type { FontFamilyKey, ShapeKind, TextAlign } from '@/model/types';
+import type { FontFamilyKey, ShapeElementKind, TextAlign } from '@/model/types';
 import { PenOptions } from './PenOptions';
-import { HIGHLIGHTER_COLORS, PEN_COLORS, useSettings, type ToolSettings } from '@/store/settings';
+import { HIGHLIGHTER_COLORS, PEN_COLORS, SHAPE_FILLS, useSettings, type ToolSettings } from '@/store/settings';
 import { errorMessage, toast } from '@/store/ui';
 
 const TOOLS: { tool: ToolKind; icon: typeof PenTool; label: string; key: string }[] = [
@@ -258,15 +259,17 @@ function ToolOptions({ tool }: { tool: ToolKind }) {
         </div>
       );
     case 'shape': {
-      const kinds: { k: ShapeKind | 'auto'; icon: React.ReactNode; label: string }[] = [
+      const kinds: { k: ShapeElementKind | 'auto'; icon: React.ReactNode; label: string }[] = [
         { k: 'auto', icon: <Sparkles className="h-5 w-5" />, label: 'Авто' },
         { k: 'line', icon: <Minus className="h-5 w-5" />, label: 'Линия' },
         { k: 'arrow', icon: <ArrowUpRight className="h-5 w-5" />, label: 'Стрелка' },
         { k: 'rectangle', icon: <Square className="h-5 w-5" />, label: 'Прямоуг.' },
-        { k: 'circle', icon: <Circle className="h-5 w-5" />, label: 'Круг' },
-        { k: 'ellipse', icon: <Circle className="h-5 w-5 scale-x-125" />, label: 'Эллипс' },
+        { k: 'roundedRect', icon: <Square className="h-5 w-5 rounded-md" strokeWidth={2.5} />, label: 'Скругл.' },
+        { k: 'ellipse', icon: <Circle className="h-5 w-5" />, label: 'Эллипс' },
         { k: 'triangle', icon: <Triangle className="h-5 w-5" />, label: 'Треуг.' },
+        { k: 'polygon', icon: <Hexagon className="h-5 w-5" />, label: 'Многоуг.' },
       ];
+      const sh = tools.shape;
       return (
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-4 gap-1.5">
@@ -274,17 +277,33 @@ function ToolOptions({ tool }: { tool: ToolKind }) {
               <button
                 key={k}
                 onClick={() => update((t) => ({ ...t, shape: { ...t.shape, kind: k } }))}
-                aria-pressed={tools.shape.kind === k}
-                className={cn('flex flex-col items-center gap-1 rounded-md py-2 text-[11px]', tools.shape.kind === k ? 'bg-accent text-accent-foreground' : 'hover:bg-muted')}
+                aria-pressed={sh.kind === k}
+                className={cn('flex flex-col items-center gap-1 rounded-md py-2 text-[11px]', sh.kind === k ? 'bg-accent text-accent-foreground' : 'hover:bg-muted')}
               >
                 {icon}
                 {label}
               </button>
             ))}
           </div>
-          {palette(PEN_COLORS, tools.shape.color, (color) => update((t) => ({ ...t, shape: { ...t.shape, color } })))}
-          <Slider label="Толщина" min={0.5} max={10} step={0.5} value={tools.shape.width} onChange={(width) => update((t) => ({ ...t, shape: { ...t.shape, width } }))} />
-          <p className="text-[12px] text-muted-foreground">«Авто» распознаёт нарисованную от руки фигуру. Shift на клавиатуре — ровные круги, квадраты и углы 45°.</p>
+          {palette(PEN_COLORS, sh.color, (color) => update((t) => ({ ...t, shape: { ...t.shape, color } })))}
+          <div>
+            <Label>Заливка</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => update((t) => ({ ...t, shape: { ...t.shape, fill: null } }))}
+                aria-pressed={sh.fill === null}
+                className={cn('h-8 rounded-full border px-3 text-[12px]', sh.fill === null && 'border-primary bg-accent text-accent-foreground')}
+              >
+                Без заливки
+              </button>
+              {SHAPE_FILLS.map((c) => (
+                <ColorSwatch key={c} color={c} active={sh.fill === c} onClick={() => update((t) => ({ ...t, shape: { ...t.shape, fill: c } }))} />
+              ))}
+            </div>
+          </div>
+          <Slider label="Толщина обводки" min={0} max={12} step={0.5} value={sh.width} onChange={(width) => update((t) => ({ ...t, shape: { ...t.shape, width } }))} />
+          <Slider label="Непрозрачность" min={10} max={100} value={Math.round(sh.opacity * 100)} onChange={(v) => update((t) => ({ ...t, shape: { ...t.shape, opacity: v / 100 } }))} format={(v) => `${v}%`} />
+          <p className="text-[12px] text-muted-foreground">После рисования фигура выделяется: тяните ручки, чтобы изменить ширину, высоту или повернуть. Shift — ровные пропорции и углы 45°.</p>
         </div>
       );
     }

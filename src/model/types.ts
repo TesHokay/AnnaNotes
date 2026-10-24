@@ -140,7 +140,27 @@ export interface ImageElement extends ElementBase {
   assetId: UUID;
 }
 
-export type PageElement = StrokeElement | TextElement | ImageElement;
+export type ShapeElementKind = 'line' | 'arrow' | 'rectangle' | 'roundedRect' | 'ellipse' | 'triangle' | 'polygon' | 'freeform';
+
+/** Editable vector shape: box + rotation, optional box-local points (line/arrow/polygon). */
+export interface ShapeElement extends ElementBase {
+  type: 'shape';
+  kind: ShapeElementKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  points?: { x: number; y: number }[];
+  stroke: string;
+  strokeWidth: number;
+  opacity: number;
+  /** Fill colour, or null for no fill. */
+  fill: string | null;
+  cornerRadius?: number;
+}
+
+export type PageElement = StrokeElement | TextElement | ImageElement | ShapeElement;
 
 export type AssetKind = 'image' | 'pdf';
 

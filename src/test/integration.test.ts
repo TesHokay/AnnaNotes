@@ -11,6 +11,7 @@ import { importPdfAsNotebook, ImportError } from '@/pdf/importPdf';
 import { DEFAULT_SETUP } from '@/model/paper';
 import { uuid } from '@/lib/id';
 import { makeStroke, pts } from './helpers';
+import type { ShapeElement } from '@/model/types';
 
 /**
  * End-to-end data flow without the UI: the same modules the editor uses (DocumentModel →
@@ -89,6 +90,11 @@ describe('notebook lifecycle (integration)', () => {
     setDB(new PencilNotesDB(`int-${uuid()}`));
     const nb = await createNotebook({ title: 'grid', setup: { ...DEFAULT_SETUP, template: 'grid' } });
     const pages = await listPages(nb.id);
+    const { getDB } = await import('@/db/db');
+    await getDB().elements.add({
+      id: uuid(), type: 'shape', pageId: pages[0]!.id, notebookId: nb.id, createdAt: 0, z: 1, kind: 'roundedRect',
+      x: 50, y: 50, width: 200, height: 80, rotation: 0.3, stroke: '#e86c9e', strokeWidth: 3, opacity: 1, fill: '#fde2ec', cornerRadius: 12,
+    } as ShapeElement);
     const out = await exportNotebookPdf(pages, { loadElements: loadPageElements, getAsset });
     const doc = await PDFDocument.load(out);
     expect(doc.getPage(0).getWidth()).toBeCloseTo(595.28, 1);

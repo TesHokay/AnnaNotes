@@ -118,6 +118,8 @@ export function isNearlyStraight(points: readonly Vec[], tolerance = 0.06): bool
 export interface RecognizedShape {
   kind: ShapeKind;
   strokes: StrokePoint[][];
+  /** Corner points for polygons (triangle). */
+  vertices?: Vec[];
 }
 
 /**
@@ -158,7 +160,7 @@ export function recognizeShape(points: readonly Vec[]): RecognizedShape | null {
 
   if (vertexCount === 3) {
     const tri = corners.slice(0, 3);
-    return { kind: 'triangle', strokes: [polyline(tri, true, 6)] };
+    return { kind: 'triangle', strokes: [polyline(tri, true, 6)], vertices: tri };
   }
   if (vertexCount === 4 && ellipseScore > 0.08) {
     return { kind: 'rectangle', strokes: shapePoints('rectangle', { x: box.minX, y: box.minY }, { x: box.maxX, y: box.maxY }) };

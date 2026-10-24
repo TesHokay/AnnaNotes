@@ -5,13 +5,13 @@ import { makeStroke, pts } from '@/test/helpers';
 
 describe('stroke outline', () => {
   it('width follows pressure for the fountain pen and stays constant for shapes', () => {
-    const p = pts([[0, 0], [10, 0], [20, 0]]);
-    p[0]!.pressure = 0;
-    p[2]!.pressure = 1;
-    const w = computeWidths(p, 4, widthProfile('pen', 'fountain'));
-    expect(w[0]).toBeLessThan(w[2]!);
-    expect(w[2]).toBeCloseTo(4);
-    const c = computeWidths(p, 4, widthProfile('shape', 'ball'));
+    const light = pts(Array.from({ length: 30 }, (_, i) => [i * 2, 0] as [number, number]), 0.1);
+    const heavy = pts(Array.from({ length: 30 }, (_, i) => [i * 2, 0] as [number, number]), 1);
+    const wl = computeWidths(light, 4, widthProfile('pen', 'fountain'));
+    const wh = computeWidths(heavy, 4, widthProfile('pen', 'fountain'));
+    expect(wl[15]!).toBeLessThan(wh[15]! * 0.6);
+    expect(wh[15]!).toBeLessThanOrEqual(4);
+    const c = computeWidths(heavy, 4, widthProfile('shape', 'ball'));
     expect(new Set(c).size).toBe(1);
   });
 

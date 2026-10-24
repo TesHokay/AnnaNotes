@@ -61,8 +61,9 @@ describe('smoothing', () => {
     const rawVar = jitter.slice(10).reduce((a, p) => a + p.y * p.y, 0);
     const outVar = out.slice(10).reduce((a, p) => a + p.y * p.y, 0);
     expect(outVar).toBeLessThan(rawVar * 0.5);
-    const last = jitter[jitter.length - 1]!;
-    expect(sm.finish(last)).toMatchObject({ x: last.x, y: last.y });
+    const last = { ...jitter[jitter.length - 1]!, x: jitter[jitter.length - 1]!.x + 4 };
+    const tail = sm.finish(last);
+    expect(tail[tail.length - 1]).toMatchObject({ x: last.x, y: last.y });
   });
 
   it('simplifies by distance but keeps endpoints', () => {

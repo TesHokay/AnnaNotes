@@ -27,18 +27,18 @@ import {
   IDENTITY,
 } from './geometry';
 import type { ChangeSet } from './history';
-import { computeWidths, outlinePolygon, tracePolygon, widthProfile } from './outline';
+import { computeWidths, outlinePolygon, strokeOutline, tracePolygon, widthProfile } from './outline';
 import { normalizePressure, PressureDetector, SimulatedPressure, type PressureCalibration } from './pressure';
-import { drawElements, type ImageResolver } from './renderer';
+import { drawElements, strokeFillStyle, type ImageResolver } from './renderer';
 import { isNearlyStraight, recognizeShape, shapePoints } from './shapes';
-import { AdaptiveSmoother } from './smoothing';
+import { AdaptiveSmoother, isOutlier } from './smoothing';
 import { snapHighlightToText, type TextRun } from '@/pdf/textLayer';
 
 export type ToolKind = 'pen' | 'highlighter' | 'eraser' | 'lasso' | 'shape' | 'text';
 
 export interface ToolConfig {
   tool: ToolKind;
-  pen: { color: string; width: number; opacity: number; style: PenStyle };
+  pen: { color: string; width: number; opacity: number; style: PenStyle; stabilization: number };
   highlighter: { color: string; width: number; opacity: number; snapToText: boolean };
   eraser: { mode: 'stroke' | 'partial' | 'object'; size: number };
   lasso: { mode: 'free' | 'rect' };
@@ -173,7 +173,7 @@ export class InkAction implements Action {
   ) {
     this.tool = mode === 'highlighter' ? 'highlighter' : mode === 'auto-shape' ? 'shape' : 'pen';
     this.detector = new PressureDetector(first.pointerType);
-    this.smoother = new AdaptiveSmoother(mode === 'pen' ? ctx.config.smoothing : mode === 'highlighter' ? 0.7 : 0.3, 1 / ctx.scale());
+    this.smoother = new AdaptiveSmoother(mode === 'pen' ? ctx.config.pen.stabilization : mode === 'highlighter' ? 0.6 : 0.3, 1 / ctx.scale());
     this.t0 = first.t;
     this.add(first);
     this.armHold(first);
@@ -202,6 +202,7 @@ export class InkAction implements Action {
   }
 
   private add(s: Sample): void {
+    if (isOutlier(this.lastRaw, s, 1 / this.ctx.scale())) return;
     const p = this.smoother.push(this.toPoint(s));
     const last = this.points[this.points.length - 1];
     const minDist = 0.4 / this.ctx.scale();
@@ -264,6 +265,7 @@ export class InkAction implements Action {
       points,
       boundingBox: strokeBBox(points, st.width),
       shape,
+      simulatedPressure: shape ? undefined : !this.detector.hasRealPressure || undefined,
     });
     if (this.snapped) return this.snapped.strokes.map((pts) => make(pts, this.snapped!.kind));
     if (this.mode === 'highlighter' && this.ctx.config.highlighter.snapToText) {
@@ -287,8 +289,7 @@ export class InkAction implements Action {
   end(cancelled: boolean): void {
     if (this.holdTimer) clearTimeout(this.holdTimer);
     if (!this.snapped && this.lastRaw) {
-      const tail = this.smoother.finish(this.toPoint(this.lastRaw));
-      if (tail) this.points.push(tail);
+      this.points.push(...this.smoother.finish(this.toPoint(this.lastRaw), this.points[this.points.length - 2]));
     }
     // On pointercancel (iOS system gesture, palm) keep what was drawn if it is a real stroke.
     if (cancelled && this.points.length < 3 && !this.snapped) return;
@@ -305,20 +306,20 @@ export class InkAction implements Action {
 
   drawOverlay(ctx: CanvasRenderingContext2D): void {
     const st = this.style();
-    ctx.fillStyle = st.color;
     ctx.globalAlpha = st.opacity;
-    const profile = widthProfile(this.snapped ? 'shape' : this.tool, st.penStyle);
     const path = new Path2D();
     if (this.snapped) {
+      const profile = widthProfile('shape', st.penStyle);
       for (const pts of this.snapped.strokes) tracePolygon(path, outlinePolygon(pts, computeWidths(pts, st.width, profile)));
     } else {
+      // Same geometry pipeline as the committed stroke, so the line does not change on pen-up.
       const pts = this.predicted.length ? [...this.points, ...this.predicted] : this.points;
-      tracePolygon(path, outlinePolygon(pts, computeWidths(pts, st.width, profile)));
+      tracePolygon(path, strokeOutline({ points: pts, baseWidth: st.width, tool: this.tool, penStyle: st.penStyle, simulatedPressure: !this.detector.hasRealPressure }));
     }
+    ctx.fillStyle = strokeFillStyle(ctx, st.color, this.tool === 'pen' ? st.penStyle : 'ballpoint');
     ctx.fill(path);
     ctx.globalAlpha = 1;
-  }
-}
+  }}
 
 // ------------------------------------------------------------------ eraser
 

@@ -85,7 +85,8 @@ export interface StrokePoint {
 }
 
 export type StrokeTool = 'pen' | 'highlighter' | 'shape';
-export type PenStyle = 'fountain' | 'ball' | 'brush';
+/** 'ball' is the legacy id of 'ballpoint' (kept so old documents render unchanged). */
+export type PenStyle = 'ballpoint' | 'fountain' | 'calligraphy' | 'brush' | 'fineliner' | 'pencil' | 'marker' | 'monoline' | 'ball';
 export type ShapeKind = 'line' | 'arrow' | 'rectangle' | 'circle' | 'ellipse' | 'triangle';
 
 interface ElementBase {
@@ -107,6 +108,8 @@ export interface StrokeElement extends ElementBase {
   points: StrokePoint[];
   boundingBox: BBox;
   shape?: ShapeKind;
+  /** The device reported no real pressure; widths come from speed/direction simulation. */
+  simulatedPressure?: boolean;
 }
 
 export type TextAlign = 'left' | 'center' | 'right';

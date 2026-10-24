@@ -28,7 +28,8 @@ import { useSession } from '@/editor/session';
 import { pickFiles } from '@/lib/files';
 import { prepareImage } from '@/lib/images';
 import { cn } from '@/lib/utils';
-import type { FontFamilyKey, PenStyle, ShapeKind, TextAlign } from '@/model/types';
+import type { FontFamilyKey, ShapeKind, TextAlign } from '@/model/types';
+import { PenOptions } from './PenOptions';
 import { HIGHLIGHTER_COLORS, PEN_COLORS, useSettings, type ToolSettings } from '@/store/settings';
 import { errorMessage, toast } from '@/store/ui';
 
@@ -186,8 +187,6 @@ export const Toolbar = memo(function Toolbar({ compact }: { compact?: boolean })
 function ToolOptions({ tool }: { tool: ToolKind }) {
   const tools = useSettings((s) => s.tools);
   const update = useSettings((s) => s.updateTools);
-  const quick = useSettings((s) => s.quickPenColors);
-  const setSetting = useSettings((s) => s.set);
   const session = useSession();
 
   const palette = (colors: string[], value: string, onPick: (c: string) => void) => (
@@ -204,33 +203,10 @@ function ToolOptions({ tool }: { tool: ToolKind }) {
     </div>
   );
 
-  const pinColor = (c: string) => {
-    if (quick.includes(c)) return;
-    setSetting('quickPenColors', [c, ...quick].slice(0, 3));
-  };
 
   switch (tool) {
     case 'pen':
-      return (
-        <div className="flex flex-col gap-4">
-          <Segmented<PenStyle>
-            value={tools.pen.style}
-            onChange={(style) => update((t) => ({ ...t, pen: { ...t.pen, style } }))}
-            options={[
-              { value: 'fountain', label: 'Перьевая' },
-              { value: 'ball', label: 'Шариковая' },
-              { value: 'brush', label: 'Кисть' },
-            ]}
-          />
-          {palette(PEN_COLORS, tools.pen.color, (color) => {
-            update((t) => ({ ...t, pen: { ...t.pen, color } }));
-            pinColor(color);
-          })}
-          <Slider label="Толщина" min={0.5} max={12} step={0.1} value={tools.pen.width} onChange={(width) => update((t) => ({ ...t, pen: { ...t.pen, width } }))} format={(v) => v.toFixed(1)} />
-          <Slider label="Непрозрачность" min={10} max={100} value={Math.round(tools.pen.opacity * 100)} onChange={(v) => update((t) => ({ ...t, pen: { ...t.pen, opacity: v / 100 } }))} format={(v) => `${v}%`} />
-          <p className="text-[12px] text-muted-foreground">Удержите перо в конце линии — она выпрямится или превратится в фигуру.</p>
-        </div>
-      );
+      return <PenOptions />;
     case 'highlighter':
       return (
         <div className="flex flex-col gap-4">

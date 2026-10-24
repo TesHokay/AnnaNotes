@@ -73,7 +73,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               onChange={(v) => s.set('calibration', { ...s.calibration, ceiling: v / 100 })}
               format={(v) => `${v}%`}
             />
-            <Slider label="Сглаживание линий" value={Math.round(s.smoothing * 100)} min={0} max={100} onChange={(v) => s.set('smoothing', v / 100)} format={(v) => `${v}%`} />
             <PressureTestPad />
             <p className="text-[12px] leading-snug text-muted-foreground">
               Если устройство не передаёт силу нажатия (мышь, палец, Apple Pencil без датчика давления), толщина линии меняется в зависимости от скорости.

@@ -20,8 +20,51 @@ export function strokePath(stroke: StrokeElement): Path2D {
   return p;
 }
 
+const grainCache = new Map<string, CanvasPattern | null>();
+
+/**
+ * Graphite texture for the pencil: a tile of the ink colour with per-pixel alpha noise. It is
+ * deterministic (seeded) so the same stroke always looks the same.
+ */
+function pencilPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+  const cached = grainCache.get(color);
+  if (cached !== undefined) return cached ?? color;
+  let pattern: CanvasPattern | null = null;
+  try {
+    const size = 48;
+    const tile = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(size, size) : Object.assign(document.createElement('canvas'), { width: size, height: size });
+    const tctx = tile.getContext('2d') as CanvasRenderingContext2D | null;
+    const m = /^#?([0-9a-f]{6})$/i.exec(color);
+    if (tctx && m) {
+      const n = parseInt(m[1]!, 16);
+      const img = tctx.createImageData(size, size);
+      let seed = 1234567;
+      for (let i = 0; i < size * size; i++) {
+        seed = (seed * 16807) % 2147483647;
+        const r = seed / 2147483647;
+        img.data[i * 4] = (n >> 16) & 255;
+        img.data[i * 4 + 1] = (n >> 8) & 255;
+        img.data[i * 4 + 2] = n & 255;
+        img.data[i * 4 + 3] = Math.round(255 * (0.35 + 0.65 * Math.pow(r, 0.6)));
+      }
+      tctx.putImageData(img, 0, 0);
+      pattern = ctx.createPattern(tile as CanvasImageSource, 'repeat');
+      // Grain size in page units, independent of the bitmap resolution.
+      pattern?.setTransform?.(new DOMMatrix().scaleSelf(0.5, 0.5));
+    }
+  } catch {
+    pattern = null;
+  }
+  grainCache.set(color, pattern);
+  return pattern ?? color;
+}
+
+export function strokeFillStyle(ctx: CanvasRenderingContext2D, color: string, penStyle: StrokeElement['penStyle']): string | CanvasPattern {
+  return penStyle === 'pencil' ? pencilPattern(ctx, color) : color;
+}
+
 export function drawStroke(ctx: CanvasRenderingContext2D, stroke: StrokeElement, opaque = false): void {
-  ctx.fillStyle = stroke.color;
+  ctx.fillStyle = stroke.tool === 'pen' ? strokeFillStyle(ctx, stroke.color, stroke.penStyle) : stroke.color;
   ctx.globalAlpha = opaque ? 1 : stroke.opacity;
   ctx.fill(strokePath(stroke));
   ctx.globalAlpha = 1;

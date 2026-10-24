@@ -3,6 +3,7 @@ import { getDB } from '@/db/db';
 import { setSetting } from '@/db/repo';
 import { DEFAULT_CALIBRATION, type PressureCalibration } from '@/engine/pressure';
 import type { ToolConfig } from '@/engine/tools';
+import type { PenStyle } from '@/model/types';
 
 export type ThemePref = 'system' | 'light' | 'dark';
 export type SortKey = 'updated' | 'created' | 'title' | 'opened';
@@ -12,9 +13,37 @@ export type ToolSettings = Omit<ToolConfig, 'smoothing' | 'calibration'>;
 export const PEN_COLORS = ['#1c1c1e', '#0a84ff', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#8e8e93', '#ffffff', '#5856d6', '#a2845e', '#ff2d55', '#00c7be'];
 export const HIGHLIGHTER_COLORS = ['#ffd60a', '#a4f06d', '#5ac8fa', '#ff9fd1', '#ffb340', '#c7a4ff'];
 
+export type PenParams = Pick<ToolSettings['pen'], 'width' | 'opacity' | 'stabilization'>;
+
+/** Per-style defaults; the user's changes are remembered per style in `penMemory`. */
+export const PEN_DEFAULTS: Record<Exclude<PenStyle, 'ball'>, PenParams> = {
+  ballpoint: { width: 1.6, opacity: 1, stabilization: 0.45 },
+  fountain: { width: 2.2, opacity: 1, stabilization: 0.5 },
+  calligraphy: { width: 5.5, opacity: 1, stabilization: 0.55 },
+  brush: { width: 6, opacity: 1, stabilization: 0.35 },
+  fineliner: { width: 1, opacity: 1, stabilization: 0.4 },
+  pencil: { width: 1.6, opacity: 0.9, stabilization: 0.35 },
+  marker: { width: 5, opacity: 0.9, stabilization: 0.3 },
+  monoline: { width: 2, opacity: 1, stabilization: 0.6 },
+};
+
+export const PEN_PRESETS: { id: string; label: string; style: Exclude<PenStyle, 'ball'>; params: PenParams }[] = [
+  { id: 'quick', label: 'Быстрые заметки', style: 'ballpoint', params: { width: 1.6, opacity: 1, stabilization: 0.25 } },
+  { id: 'neat', label: 'Аккуратный почерк', style: 'fountain', params: { width: 2, opacity: 1, stabilization: 0.6 } },
+  { id: 'calligraphy', label: 'Каллиграфия', style: 'calligraphy', params: { width: 6, opacity: 1, stabilization: 0.6 } },
+  { id: 'drawing', label: 'Рисование', style: 'brush', params: { width: 5, opacity: 1, stabilization: 0.2 } },
+];
+
+export const STABILIZATION_LEVELS = [
+  { value: 0, label: 'Выкл.' },
+  { value: 0.3, label: 'Слабая' },
+  { value: 0.55, label: 'Средняя' },
+  { value: 0.8, label: 'Сильная' },
+];
+
 export const DEFAULT_TOOLS: ToolSettings = {
   tool: 'pen',
-  pen: { color: '#1c1c1e', width: 2.2, opacity: 1, style: 'fountain' },
+  pen: { color: '#1c1c1e', width: 2.2, opacity: 1, style: 'fountain', stabilization: 0.5 },
   highlighter: { color: '#ffd60a', width: 14, opacity: 0.38, snapToText: true },
   eraser: { mode: 'partial', size: 24 },
   lasso: { mode: 'free' },
@@ -37,6 +66,7 @@ export interface SettingsState {
   lastBackupAt: number;
   storageNoticeDismissed: boolean;
   openTabs: string[];
+  penMemory: Partial<Record<PenStyle, PenParams>>;
 }
 
 const DEFAULTS: Omit<SettingsState, 'loaded'> = {
@@ -53,6 +83,7 @@ const DEFAULTS: Omit<SettingsState, 'loaded'> = {
   lastBackupAt: 0,
   storageNoticeDismissed: false,
   openTabs: [],
+  penMemory: {},
 };
 
 type PersistedKey = keyof typeof DEFAULTS;
@@ -61,11 +92,13 @@ interface SettingsActions {
   load(): Promise<void>;
   set<K extends PersistedKey>(key: K, value: SettingsState[K]): void;
   updateTools(fn: (t: ToolSettings) => ToolSettings): void;
+  /** Switch pen style, remembering the current style's parameters and restoring the new one's. */
+  selectPenStyle(style: Exclude<PenStyle, 'ball'>, params?: PenParams): void;
 }
 
 const pendingWrites = new Map<string, { timer: ReturnType<typeof setTimeout>; value: unknown }>();
 /** Keys changed continuously by sliders are debounced; everything else is written immediately. */
-const DEBOUNCED = new Set(['tools', 'calibration', 'smoothing']);
+const DEBOUNCED = new Set(['tools', 'calibration', 'smoothing', 'penMemory']);
 
 function write(key: string, value: unknown): void {
   void setSetting(key, value).catch(() => {
@@ -125,13 +158,23 @@ export const useSettings = create<SettingsState & SettingsActions>((set, get) =>
     set({ tools });
     persist('tools', tools);
   },
+  selectPenStyle(style, params) {
+    const { tools, penMemory } = get();
+    const cur = tools.pen;
+    const memory = { ...penMemory, [cur.style]: { width: cur.width, opacity: cur.opacity, stabilization: cur.stabilization } };
+    const next = params ?? memory[style] ?? PEN_DEFAULTS[style];
+    const updated: ToolSettings = { ...tools, tool: 'pen', pen: { ...cur, style, ...next } };
+    set({ tools: updated, penMemory: memory });
+    persist('tools', updated);
+    persist('penMemory', memory);
+  },
 }));
 
 function mergeTools(saved: Partial<ToolSettings>): ToolSettings {
   const d = DEFAULT_TOOLS;
   return {
     tool: saved.tool ?? d.tool,
-    pen: { ...d.pen, ...saved.pen },
+    pen: { ...d.pen, ...saved.pen, style: saved.pen?.style === 'ball' ? 'ballpoint' : (saved.pen?.style ?? d.pen.style) },
     highlighter: { ...d.highlighter, ...saved.highlighter },
     eraser: { ...d.eraser, ...saved.eraser },
     lasso: { ...d.lasso, ...saved.lasso },

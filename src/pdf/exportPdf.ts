@@ -64,7 +64,8 @@ function drawStroke(page: PDFPage, s: StrokeElement): void {
     x: 0,
     y: 0,
     color: hexToRgb(s.color),
-    opacity: s.opacity,
+    // Pencil grain is a raster effect; in vector PDF it becomes a slightly lighter solid line.
+    opacity: s.penStyle === 'pencil' ? s.opacity * 0.8 : s.opacity,
     blendMode: s.tool === 'highlighter' ? BlendMode.Multiply : undefined,
   });
 }

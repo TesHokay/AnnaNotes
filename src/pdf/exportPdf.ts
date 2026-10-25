@@ -1,6 +1,7 @@
 import { BlendMode, LineCapStyle, PDFDocument, PDFPage, concatTransformationMatrix, popGraphicsState, pushGraphicsState, rgb, type RGB } from 'pdf-lib';
 import { strokeOutline, polygonToSvgPath } from '@/engine/outline';
-import { isDarkPaper, TEMPLATE_SPACING } from '@/model/paper';
+import { isDarkPaper } from '@/model/paper';
+import { hexToRgb01, paperDecor, resolveRuling, type DecorShape } from '@/model/cutePaper';
 import type { Asset, ImageElement, Page, PageElement, ShapeElement, StrokeElement, TextElement, UUID } from '@/model/types';
 import { isClosedShape, shapeSvgPath } from '@/engine/shapeElement';
 import { flippedDocMatrix, normalizeRotation, type Matrix6 } from './coords';
@@ -36,26 +37,42 @@ function cm(page: PDFPage, m: Matrix6): void {
   page.pushOperators(concatTransformationMatrix(m[0], m[1], m[2], m[3], m[4], m[5]));
 }
 
+function drawDecorVector(page: PDFPage, p: Page, shapes: readonly DecorShape[], layer: DecorShape['layer']): void {
+  const list = shapes.filter((sh) => sh.layer === layer);
+  if (!list.length) return;
+  // Decor paths are in document space (y down): same flip as the annotations.
+  page.pushOperators(pushGraphicsState());
+  cm(page, [1, 0, 0, 1, 0, p.height]);
+  for (const sh of list) {
+    const [r, g, b] = hexToRgb01(sh.fill);
+    page.drawSvgPath(sh.d, { x: 0, y: 0, color: rgb(r, g, b), opacity: sh.opacity });
+  }
+  page.pushOperators(popGraphicsState());
+}
+
+/** Vector paper: colour, ruling and Cute Paper decorations, identical to the canvas renderer. */
 function drawTemplateVector(page: PDFPage, p: Page): void {
   const { width: w, height: h } = p;
   if (p.paperColor.toLowerCase() !== '#ffffff') page.drawRectangle({ x: 0, y: 0, width: w, height: h, color: hexToRgb(p.paperColor) });
-  if (p.template === 'blank') return;
-  const dark = isDarkPaper(p.paperColor);
-  const color = dark ? rgb(1, 1, 1) : rgb(60 / 255, 90 / 255, 140 / 255);
-  const opacity = dark ? 0.16 : 0.22;
-  // Template drawn in PDF space (y up): document y -> h - y.
+  const decor = paperDecor(p);
+  if (p.template === 'blank' && !decor.length) return;
+  const r = resolveRuling(p);
+  const [cr, cg, cb] = hexToRgb01(r.color);
+  const color = rgb(cr, cg, cb);
+  const opacity = r.alpha;
+  const s = r.spacing;
+  drawDecorVector(page, p, decor, 'under');
+  // Ruling drawn in PDF space (y up): document y -> h - y.
   if (p.template === 'grid') {
-    const s = TEMPLATE_SPACING.grid;
     for (let x = s; x < w; x += s) page.drawLine({ start: { x, y: 0 }, end: { x, y: h }, thickness: 0.4, color, opacity });
     for (let y = s; y < h; y += s) page.drawLine({ start: { x: 0, y: h - y }, end: { x: w, y: h - y }, thickness: 0.4, color, opacity });
   } else if (p.template === 'lined') {
-    const s = TEMPLATE_SPACING.lined;
     for (let y = s * 3; y < h - s / 2; y += s) page.drawLine({ start: { x: 0, y: h - y }, end: { x: w, y: h - y }, thickness: 0.4, color, opacity });
-    page.drawLine({ start: { x: s * 3, y: 0 }, end: { x: s * 3, y: h }, thickness: 0.4, color: rgb(230 / 255, 80 / 255, 80 / 255), opacity: 0.35 });
+    if (r.margin) page.drawLine({ start: { x: s * 3, y: 0 }, end: { x: s * 3, y: h }, thickness: 0.4, color: isDarkPaper(p.paperColor) ? rgb(1, 120 / 255, 120 / 255) : rgb(230 / 255, 80 / 255, 80 / 255), opacity: 0.35 });
   } else if (p.template === 'dotted') {
-    const s = TEMPLATE_SPACING.dotted;
-    for (let y = s; y < h; y += s) for (let x = s; x < w; x += s) page.drawCircle({ x, y: h - y, size: 0.8, color, opacity: opacity + 0.16 });
+    for (let y = s; y < h; y += s) for (let x = s; x < w; x += s) page.drawCircle({ x, y: h - y, size: 0.8, color, opacity: Math.min(1, opacity + 0.16) });
   }
+  drawDecorVector(page, p, decor, 'over');
 }
 
 function drawStroke(page: PDFPage, s: StrokeElement): void {
@@ -89,6 +106,7 @@ function drawBox(page: PDFPage, el: ImageElement | TextElement, draw: (x: number
   const a = -el.rotation; // clockwise on screen (y down) = negative angle in y-up space
   page.pushOperators(pushGraphicsState());
   cm(page, [Math.cos(a), Math.sin(a), -Math.sin(a), Math.cos(a), cx, -cy]);
+  if (el.type === 'image' && (el.flipX || el.flipY)) cm(page, [el.flipX ? -1 : 1, 0, 0, el.flipY ? -1 : 1, 0, 0]);
   draw(-el.width / 2, -el.height / 2, el.width, el.height);
   page.pushOperators(popGraphicsState());
 }
@@ -160,7 +178,7 @@ export async function exportNotebookPdf(pages: readonly Page[], deps: ExportDeps
             img = asset ? await embedImage(out, asset, deps) : null;
             images.set(el.assetId, img);
           }
-          if (img) drawBox(page, el, (x, y, w, h) => page.drawImage(img!, { x, y, width: w, height: h }));
+          if (img) drawBox(page, el, (x, y, w, h) => page.drawImage(img!, { x, y, width: w, height: h, opacity: el.opacity ?? 1 }));
         } else if (el.type === 'text' && deps.rasterizeText) {
           const r = await deps.rasterizeText(el);
           if (r) {

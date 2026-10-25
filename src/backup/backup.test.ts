@@ -4,7 +4,7 @@ import { strToU8, zipSync, unzipSync, strFromU8 } from 'fflate';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createBackup, parseBackup, restoreBackup } from './backup';
 import { BackupValidationError, validateManifest, BACKUP_FORMAT } from './format';
-import { createFolder, createNotebook, listPages, putAsset } from '@/db/repo';
+import { addStickerAsset, createFolder, createNotebook, listPages, putAsset, saveCover } from '@/db/repo';
 import { useTestDB, makeStroke, pts } from '@/test/helpers';
 import type { PencilNotesDB } from '@/db/db';
 import { uuid } from '@/lib/id';
@@ -33,7 +33,7 @@ describe('backup', () => {
     const { nb, stroke, asset } = await seed(db);
     const zip = await createBackup('library');
     const parsed = parseBackup(zip);
-    expect(parsed.manifest.version).toBe(1);
+    expect(parsed.manifest.version).toBe(2);
     const summary = await restoreBackup(parsed, 'merge');
     expect(summary).toMatchObject({ notebooks: 1, pages: 1, elements: 2, folders: 1 });
     expect(await db.notebooks.count()).toBe(2);
@@ -79,5 +79,53 @@ describe('backup', () => {
     expect(() => validateManifest({ ...base, format: 'other' })).toThrow();
     expect(() => validateManifest({ ...base, assets: [{ id: 'a', kind: 'pdf', mime: 'application/pdf', file: '../../etc/passwd' }] })).toThrow(/путь/);
     expect(() => validateManifest({ ...base, elements: 'nope' })).toThrow();
+  });
+
+  it('covers (with photo and thumbnail) and imported stickers survive a library backup', async () => {
+    const { nb } = await seed(db);
+    const design = { background: '#f6cad8', pattern: 'hearts' as const, patternColor: '#ffffff', title: 'Физика ♡', font: 'script' as const, fontSize: 0.1, textColor: '#b8304e', textY: 0.3, align: 'center' as const, label: true, decor: ['bow' as const], accent: '#dfa3b7', photo: { scale: 1.2, x: 0.1, y: -0.2, area: 'window' as const } };
+    await saveCover(nb.id, design, new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }), new Blob([new Uint8Array([9, 9])], { type: 'image/jpeg' }));
+    await addStickerAsset({ name: 'котик', mime: 'image/png', blob: new Blob([new Uint8Array([7, 7, 7])], { type: 'image/png' }), width: 64, height: 64 });
+    expect((await db.notebooks.get(nb.id))!.coverVersion).toBe(1);
+
+    const parsed = parseBackup(await createBackup('library'));
+    expect(parsed.manifest.covers).toHaveLength(1);
+    expect(parsed.manifest.stickers).toHaveLength(1);
+    await restoreBackup(parsed, 'replace');
+    const cover = await db.covers.get(nb.id);
+    expect(cover!.design.title).toBe('Физика ♡');
+    expect(cover!.design.photo).toMatchObject({ scale: 1.2, area: 'window' });
+    expect(new Uint8Array(await cover!.photo!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
+    expect(cover!.thumb).toBeDefined();
+    expect(await db.stickers.count()).toBe(1);
+
+    // merge: the restored notebook gets a fresh id, and so does its cover
+    await restoreBackup(parsed, 'merge');
+    expect(await db.covers.count()).toBe(2);
+    expect(await db.stickers.count()).toBe(1);
+  });
+
+  it('old v1 backups (before 4.3) still restore', async () => {
+    const { nb } = await seed(db);
+    const files = unzipSync(await createBackup('notebook', [nb.id]));
+    const manifest = JSON.parse(strFromU8(files['manifest.json']!));
+    manifest.version = 1;
+    delete manifest.covers;
+    delete manifest.stickers;
+    files['manifest.json'] = strToU8(JSON.stringify(manifest));
+    const parsed = parseBackup(zipSync(files));
+    expect(parsed.manifest.covers).toEqual([]);
+    expect((await restoreBackup(parsed, 'merge')).notebooks).toBe(1);
+  });
+
+  it('deleting a notebook removes its cover; duplicating copies it', async () => {
+    const { nb } = await seed(db);
+    const { duplicateNotebook, deleteNotebooksPermanently } = await import('@/db/repo');
+    await saveCover(nb.id, { background: '#fff', pattern: 'none', patternColor: '#000', title: 'x', font: 'serif', fontSize: 0.1, textColor: '#000', textY: 0.3, align: 'center', label: false, decor: [], accent: '#000' }, null, undefined);
+    const copy = await duplicateNotebook(nb.id);
+    expect(await db.covers.get(copy.id)).toBeDefined();
+    await deleteNotebooksPermanently([nb.id]);
+    expect(await db.covers.get(nb.id)).toBeUndefined();
+    expect(await db.covers.get(copy.id)).toBeDefined();
   });
 });

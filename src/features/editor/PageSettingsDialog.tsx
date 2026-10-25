@@ -17,6 +17,7 @@ function setupOf(page: Page | undefined, fallback: PageSetup): PageSetup {
     orientation: page.width > page.height ? 'landscape' : 'portrait',
     template: page.template,
     paperColor: page.paperColor,
+    style: page.style,
   };
 }
 

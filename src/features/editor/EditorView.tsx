@@ -13,6 +13,7 @@ import {
   Maximize,
   Minimize,
   MoreHorizontal,
+  Palette,
   PanelLeft,
   Plus,
   Redo2,
@@ -30,6 +31,7 @@ import { saveQueue } from '@/db/saveQueue';
 import { EditorSession, SessionContext, useSession } from '@/editor/session';
 import { exportNotebookAsPdf, exportNotebookBackup, exportPageAsPng } from '@/features/actions';
 import { NameDialog } from '@/features/library/dialogs';
+import { CoverEditorDialog } from '@/features/covers/CoverEditorDialog';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { useLive } from '@/lib/useLive';
 import { cn } from '@/lib/utils';
@@ -210,6 +212,7 @@ function TopBar({ compact }: { compact: boolean }) {
   const [rename, setRename] = useState(false);
   const [pageSettings, setPageSettings] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [cover, setCover] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
   const currentPage = pages[pageIndex];
 
@@ -233,7 +236,7 @@ function TopBar({ compact }: { compact: boolean }) {
   const addPage = async () => {
     try {
       const p = currentPage;
-      const setup = p && !p.pdf ? { ...notebook.defaultSetup, template: p.template, paperColor: p.paperColor, orientation: p.width > p.height ? ('landscape' as const) : ('portrait' as const), size: p.size === 'custom' ? notebook.defaultSetup.size : p.size } : notebook.defaultSetup;
+      const setup = p && !p.pdf ? { ...notebook.defaultSetup, template: p.template, paperColor: p.paperColor, style: p.style, orientation: p.width > p.height ? ('landscape' as const) : ('portrait' as const), size: p.size === 'custom' ? notebook.defaultSetup.size : p.size } : notebook.defaultSetup;
       const idx = await session.addPageAfter(p?.id ?? null, setup);
       session.engine?.scrollToPage(idx);
     } catch (err) {
@@ -295,6 +298,11 @@ function TopBar({ compact }: { compact: boolean }) {
             <DropdownMenuItem onSelect={() => setPageSettings(true)}>
               <StickyNote /> Шаблон и бумага
             </DropdownMenuItem>
+            {notebook.kind === 'notebook' && (
+              <DropdownMenuItem onSelect={() => setCover(true)}>
+                <Palette /> Обложка тетради
+              </DropdownMenuItem>
+            )}
             {currentPage && (
               <DropdownMenuItem onSelect={() => void session.toggleBookmark(currentPage)}>
                 <Bookmark /> {currentPage.bookmarked ? 'Убрать закладку' : 'Закладка на странице'}
@@ -329,6 +337,7 @@ function TopBar({ compact }: { compact: boolean }) {
       />
       <PageSettingsDialog open={pageSettings} onOpenChange={setPageSettings} />
       <SettingsDialog open={settings} onOpenChange={setSettings} />
+      {cover && <CoverEditorDialog notebook={notebook} open onClose={() => setCover(false)} />}
     </div>
   );
 }

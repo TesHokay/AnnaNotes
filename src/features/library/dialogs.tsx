@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { Folder as FolderIcon, FolderOpen, Home } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ColorSwatch, Input, Label, Segmented } from '@/components/ui/controls';
-import { COVER_COLORS, DEFAULT_SETUP, PAPER_COLORS } from '@/model/paper';
-import type { Folder, Orientation, PageSetup, PageTemplate, PaperSize, UUID } from '@/model/types';
+import { ColorSwatch, Input, Label, Segmented, Slider, Switch } from '@/components/ui/controls';
+import { COVER_COLORS, DEFAULT_SETUP, PAPER_COLORS, pageDimensions } from '@/model/paper';
+import { CUTE_BY_ID, CUTE_PAPERS, LINE_COLORS, resolveRuling, SPACING_RANGE } from '@/model/cutePaper';
+import type { Folder, Orientation, PageSetup, PageTemplate, PaperSize, PaperStyle, UUID } from '@/model/types';
 import { cn } from '@/lib/utils';
 import { TemplatePreview } from './TemplatePreview';
 
@@ -96,22 +97,51 @@ export function ConfirmDialog({
   );
 }
 
+const CLASSIC: { t: PageTemplate; label: string }[] = [
+  { t: 'blank', label: 'Пустой' },
+  { t: 'lined', label: 'Линейка' },
+  { t: 'grid', label: 'Клетка' },
+  { t: 'dotted', label: 'Точки' },
+];
+
 export function PageSetupFields({ value, onChange }: { value: PageSetup; onChange: (v: PageSetup) => void }) {
+  const landscape = value.orientation === 'landscape';
+  const cute = value.style?.cute ? CUTE_BY_ID[value.style.cute] : null;
+  const ruling = resolveRuling({ ...pageDimensions(value.size, value.orientation), ...value });
+  const setStyle = (patch: Partial<PaperStyle>) => {
+    const next = { ...value.style, ...patch };
+    for (const k of Object.keys(next) as (keyof PaperStyle)[]) if (next[k] === undefined) delete next[k];
+    onChange({ ...value, style: Object.keys(next).length ? next : undefined });
+  };
+  const hasLines = value.template !== 'blank' || cute?.decor === 'gingham';
+  const tile = (active: boolean) => cn('flex min-w-0 flex-col items-center gap-1.5 rounded-md p-1.5 text-center text-[12px] leading-tight transition-colors [overflow-wrap:anywhere]', active ? 'bg-accent text-accent-foreground' : 'hover:bg-muted');
   return (
     <div className="flex flex-col gap-4">
       <div>
         <Label>Шаблон</Label>
         <div className="grid grid-cols-4 gap-2">
-          {(['blank', 'lined', 'grid', 'dotted'] as PageTemplate[]).map((t) => (
+          {CLASSIC.map(({ t, label }) => (
+            <button key={t} type="button" onClick={() => onChange({ ...value, template: t, style: undefined })} aria-pressed={!cute && value.template === t} className={tile(!cute && value.template === t)}>
+              <TemplatePreview template={t} paperColor={cute ? '#ffffff' : value.paperColor} landscape={landscape} />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <Label>Cute Paper</Label>
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(76px,1fr))] gap-2" data-testid="cute-paper">
+          {CUTE_PAPERS.map((c) => (
             <button
-              key={t}
+              key={c.id}
               type="button"
-              onClick={() => onChange({ ...value, template: t })}
-              aria-pressed={value.template === t}
-              className={cn('flex flex-col items-center gap-1.5 rounded-md p-1.5 text-[12px] transition-colors', value.template === t ? 'bg-accent text-accent-foreground' : 'hover:bg-muted')}
+              title={c.description}
+              onClick={() => onChange({ ...value, template: c.template, paperColor: c.paperColor, style: { cute: c.id } })}
+              aria-pressed={cute?.id === c.id}
+              className={tile(cute?.id === c.id)}
             >
-              <TemplatePreview template={t} paperColor={value.paperColor} landscape={value.orientation === 'landscape'} />
-              {{ blank: 'Пустой', lined: 'Линейка', grid: 'Клетка', dotted: 'Точки' }[t]}
+              <TemplatePreview template={c.template} paperColor={c.paperColor} style={{ cute: c.id }} landscape={landscape} />
+              {c.name}
             </button>
           ))}
         </div>
@@ -147,11 +177,44 @@ export function PageSetupFields({ value, onChange }: { value: PageSetup; onChang
           {PAPER_COLORS.map((c) => (
             <ColorSwatch key={c.value} color={c.value} label={c.label} active={value.paperColor === c.value} onClick={() => onChange({ ...value, paperColor: c.value })} />
           ))}
+          {cute && <ColorSwatch color={cute.paperColor} label={`Цвет ${cute.name}`} active={value.paperColor === cute.paperColor} onClick={() => onChange({ ...value, paperColor: cute.paperColor })} />}
           <label className="relative h-8 w-8 cursor-pointer overflow-hidden rounded-full border" title="Свой цвет" style={{ background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)' }}>
             <input type="color" value={value.paperColor} onChange={(e) => onChange({ ...value, paperColor: e.target.value })} className="absolute inset-0 h-full w-full cursor-pointer opacity-0" aria-label="Свой цвет бумаги" />
           </label>
         </div>
       </div>
+      {hasLines && (
+        <div className="flex gap-4 rounded-md bg-muted/50 p-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <Slider
+              label={value.template === 'lined' ? 'Расстояние между линиями' : value.template === 'dotted' ? 'Шаг точек' : 'Размер клетки'}
+              min={SPACING_RANGE.min}
+              max={SPACING_RANGE.max}
+              value={Math.round(ruling.spacing)}
+              onChange={(spacing) => setStyle({ spacing })}
+              format={(v) => `${(v * 0.3528).toFixed(1)} мм`}
+            />
+            <div>
+              <Label>Цвет линий</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => setStyle({ lineColor: undefined })} aria-pressed={!value.style?.lineColor} className={cn('h-8 rounded-full border px-3 text-[12px]', !value.style?.lineColor && 'border-primary bg-accent text-accent-foreground')}>
+                  Обычный
+                </button>
+                {LINE_COLORS.map((c) => (
+                  <ColorSwatch key={c} color={c} size={28} active={value.style?.lineColor === c} onClick={() => setStyle({ lineColor: c })} label={`Линии ${c}`} />
+                ))}
+              </div>
+            </div>
+            {cute && cute.decor !== 'none' && cute.decor !== 'gingham' && (
+              <Switch checked={value.style?.decor !== false} onChange={(v) => setStyle({ decor: v ? undefined : false })} label="Декоративные детали" description={cute.decor === 'sakura' ? 'Цветы сакуры по уголкам' : 'Сердечки вдоль краёв'} />
+            )}
+          </div>
+          <div className="hidden shrink-0 flex-col items-center gap-1 text-[11px] text-muted-foreground sm:flex">
+            <TemplatePreview template={value.template} paperColor={value.paperColor} style={value.style} landscape={landscape} width={landscape ? 96 : 72} />
+            Предпросмотр
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,14 +1,18 @@
-import type { Asset, Folder, Notebook, Page, PageElement } from '@/model/types';
+import type { Asset, Folder, Notebook, NotebookCoverRecord, Page, PageElement, StickerAsset } from '@/model/types';
 
 export const BACKUP_FORMAT = 'pencil-notes-backup';
 /**
  * Backup format version. Bump when the manifest shape changes and add a step to
  * migrateManifest() so older backups keep restoring.
  */
-export const BACKUP_VERSION = 1;
+export const BACKUP_VERSION = 2;
 export const MAX_BACKUP_BYTES = 1024 * 1024 * 1024;
 
 export type AssetMeta = Omit<Asset, 'blob'> & { file: string };
+/** v2: custom notebook covers (photo and thumbnail stored as files). */
+export type CoverMeta = Omit<NotebookCoverRecord, 'photo' | 'thumb'> & { photoFile?: string; photoMime?: string; thumbFile?: string };
+/** v2: the user's imported Sticker Studio stickers (library backups only). */
+export type StickerMeta = Omit<StickerAsset, 'blob'> & { file: string };
 
 export interface BackupManifest {
   format: typeof BACKUP_FORMAT;
@@ -21,6 +25,8 @@ export interface BackupManifest {
   pages: Page[];
   elements: PageElement[];
   assets: AssetMeta[];
+  covers: CoverMeta[];
+  stickers: StickerMeta[];
 }
 
 export class BackupValidationError extends Error {
@@ -37,8 +43,12 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 /** Upgrades older manifests to the current version (no older versions exist yet). */
 export function migrateManifest(raw: Record<string, unknown>): Record<string, unknown> {
   const m = { ...raw };
-  // Example for the future:
-  // if (m.version === 1) { ...transform...; m.version = 2; }
+  // v1 → v2: covers and stickers did not exist yet.
+  if (m.version === 1) {
+    m.covers = [];
+    m.stickers = [];
+    m.version = 2;
+  }
   return m;
 }
 
@@ -109,6 +119,16 @@ export function validateManifest(raw: unknown): BackupManifest {
     } else if (e.type === 'shape') {
       if (!isStr(e.kind) || !isNum(e.x) || !isNum(e.y) || !isNum(e.width) || !isNum(e.height) || !isStr(e.stroke) || !isNum(e.strokeWidth)) problems.push(`фигура #${i}`);
     } else problems.push(`элемент #${i}: неизвестный тип`);
+  });
+  const fileOk = (v: unknown) => v === undefined || (isStr(v) && /^assets\/[\w-]+\.bin$/.test(v));
+  if (!Array.isArray(m.covers)) m.covers = [];
+  if (!Array.isArray(m.stickers)) m.stickers = [];
+  (m.covers as unknown[]).forEach((c, i) => {
+    if (!isObj(c) || !isStr(c.id) || !isObj(c.design) || !fileOk(c.photoFile) || !fileOk(c.thumbFile)) problems.push(`обложка #${i}`);
+    else if (!nbIds.has(c.id)) problems.push(`обложка #${i} ссылается на отсутствующий документ`);
+  });
+  (m.stickers as unknown[]).forEach((st, i) => {
+    if (!isObj(st) || !isStr(st.id) || !isStr(st.mime) || !isStr(st.file) || !fileOk(st.file)) problems.push(`стикер #${i}`);
   });
   if (problems.length) throw new BackupValidationError(problems);
   return m as unknown as BackupManifest;

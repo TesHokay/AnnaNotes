@@ -16,6 +16,7 @@ import {
   List,
   Menu,
   MoreHorizontal,
+  Palette,
   Pencil,
   RotateCcw,
   Search,
@@ -66,6 +67,7 @@ import { useSettings, type SortKey } from '@/store/settings';
 import { errorMessage, navigate, toast } from '@/store/ui';
 import { ConfirmDialog, MoveDialog, NameDialog, NewNotebookDialog } from './dialogs';
 import { NotebookCover } from './NotebookCover';
+import { CoverEditorDialog } from '@/features/covers/CoverEditorDialog';
 
 type Section = { kind: 'all' } | { kind: 'recent' } | { kind: 'favorites' } | { kind: 'trash' } | { kind: 'folder'; id: UUID };
 
@@ -141,6 +143,7 @@ export function LibraryView() {
   const [moveTarget, setMoveTarget] = useState<{ notebookIds?: UUID[]; folderId?: UUID } | null>(null);
   const [confirm, setConfirm] = useState<{ title: string; description?: string; label: string; run: () => void } | null>(null);
   const [restore, setRestore] = useState<ParsedBackup | null>(null);
+  const [coverFor, setCoverFor] = useState<Notebook | null>(null);
 
   const currentFolderId = section.kind === 'folder' ? section.id : null;
   const folderList = folders ?? [];
@@ -235,6 +238,11 @@ export function LibraryView() {
         <DropdownMenuItem onSelect={() => setNameDialog({ title: 'Переименовать', initial: nb.title, confirm: 'Сохранить', submit: (v) => void guarded(() => renameNotebook(nb.id, v)) })}>
           <Pencil /> Переименовать
         </DropdownMenuItem>
+        {nb.kind === 'notebook' && (
+          <DropdownMenuItem onSelect={() => setCoverFor(nb)}>
+            <Palette /> Обложка…
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onSelect={() => void guarded(() => setFavorite([nb.id], !nb.favorite))}>
           <Star /> {nb.favorite ? 'Убрать из избранного' : 'В избранное'}
         </DropdownMenuItem>
@@ -516,6 +524,7 @@ export function LibraryView() {
         </div>
       </main>
 
+      {coverFor && <CoverEditorDialog notebook={coverFor} open onClose={() => setCoverFor(null)} />}
       <NewNotebookDialog
         open={newNotebook}
         onClose={() => setNewNotebook(false)}

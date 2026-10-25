@@ -10,11 +10,29 @@ export type PaperSize = 'A4' | 'A5' | 'Letter';
 export type Orientation = 'portrait' | 'landscape';
 export type PageTemplate = 'blank' | 'grid' | 'lined' | 'dotted';
 
+/** Built-in decorative papers (Cute Paper). Definitions live in model/cutePaper.ts. */
+export type CutePaperId = 'strawberry' | 'lavender' | 'vanilla' | 'matcha' | 'sakura' | 'hearts' | 'gingham' | 'beige' | 'sky' | 'moonlight';
+
+/**
+ * Optional ruling/decoration settings of a page (the "PaperTemplate" applied to it). Absent on
+ * pages created before 4.3, which keep the classic look.
+ */
+export interface PaperStyle {
+  cute?: CutePaperId;
+  /** Grid size / line spacing in points (overrides the template default). */
+  spacing?: number;
+  /** Ruling colour (#rrggbb); drawn with the template's usual transparency. */
+  lineColor?: string;
+  /** Decorative details of a cute paper (sakura corners, hearts along the edges). Default on. */
+  decor?: boolean;
+}
+
 export interface PageSetup {
   size: PaperSize;
   orientation: Orientation;
   template: PageTemplate;
   paperColor: string;
+  style?: PaperStyle;
 }
 
 export interface Folder {
@@ -41,6 +59,8 @@ export interface Notebook {
   deletedAt: number;
   pageCount: number;
   defaultSetup: PageSetup;
+  /** Bumped when the custom cover changes (see NotebookCoverRecord); busts cached thumbnails. */
+  coverVersion?: number;
 }
 
 export interface PdfPageRef {
@@ -58,6 +78,7 @@ export interface Page {
   size: PaperSize | 'custom';
   template: PageTemplate;
   paperColor: string;
+  style?: PaperStyle;
   pdf: PdfPageRef | null;
   /** Denormalised copy of pdf.assetId for indexing (schema v2). */
   pdfAssetId?: UUID;
@@ -140,6 +161,13 @@ export interface ImageElement extends ElementBase {
   height: number;
   rotation: number;
   assetId: UUID;
+  /** Mirror horizontally / vertically (stickers). */
+  flipX?: boolean;
+  flipY?: boolean;
+  /** 0..1, default 1. */
+  opacity?: number;
+  /** Set for stickers: the library sticker id (`builtin:<id>` or `custom:<uuid>`). */
+  sticker?: string;
 }
 
 export type ShapeElementKind = 'line' | 'arrow' | 'rectangle' | 'roundedRect' | 'ellipse' | 'triangle' | 'polygon' | 'freeform';
@@ -190,4 +218,51 @@ export interface BackupMetadata {
   name: string;
   size: number;
   createdAt: number;
+}
+
+/** A sticker the user imported into the Sticker Studio library (built-in stickers live in code). */
+export interface StickerAsset {
+  id: UUID;
+  name: string;
+  mime: string;
+  blob: Blob;
+  width: number;
+  height: number;
+  createdAt: number;
+}
+
+export type CoverPattern = 'none' | 'dots' | 'stripes' | 'grid' | 'gingham' | 'hearts' | 'stars' | 'flowers' | 'waves' | 'linen';
+export type CoverDecor = 'bow' | 'heart' | 'flower' | 'star' | 'frame' | 'corners' | 'gold';
+export type CoverFont = 'serif' | 'sans' | 'rounded' | 'script' | 'mono';
+
+/** Structured description of a custom notebook cover. */
+export interface CoverDesign {
+  preset?: string;
+  background: string;
+  pattern: CoverPattern;
+  patternColor: string;
+  title: string;
+  font: CoverFont;
+  /** Title size relative to the cover width (0.05..0.16). */
+  fontSize: number;
+  textColor: string;
+  /** Title position: vertical centre as a fraction of the height (0..1) and alignment. */
+  textY: number;
+  align: 'left' | 'center' | 'right';
+  /** Title on a soft label plate. */
+  label: boolean;
+  decor: CoverDecor[];
+  accent: string;
+  /** Photo placement (present when a photo is stored): scale ≥ 1 covers the area; x/y offsets -1..1. */
+  photo?: { scale: number; x: number; y: number; area: 'full' | 'window' };
+}
+
+/** NotebookCover entity: one per notebook (id = notebook id). */
+export interface NotebookCoverRecord {
+  id: UUID;
+  design: CoverDesign;
+  photo?: Blob;
+  /** Rendered 300×400 JPEG for the library grid. */
+  thumb?: Blob;
+  updatedAt: number;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { BringToFront, Check, Copy, CopyPlus, Maximize2, Minus, Plus, Scissors, SendToBack, Trash2, Type } from 'lucide-react';
+import { BringToFront, Check, Copy, CopyPlus, FlipHorizontal2, FlipVertical2, Maximize2, Minus, Plus, Scissors, SendToBack, SlidersHorizontal, Trash2, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ColorSwatch, Input, Label, Slider } from '@/components/ui/controls';
 import type { SelectionInfo } from '@/engine/DrawingEngine';
@@ -43,7 +43,8 @@ export function SelectionBar() {
       data-testid="selection-bar"
     >
       {sel.shape && <ShapeStylePopover shape={sel.shape} />}
-      {sel.shape && (
+      {sel.image && <ImageStylePopover image={sel.image} />}
+      {(sel.shape || sel.image) && (
         <>
           <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="На передний план" title="На передний план" onClick={() => e?.arrangeSelection('front')}>
             <BringToFront className="h-4 w-4" />
@@ -87,6 +88,39 @@ export function SelectionBar() {
         <Trash2 className="h-4 w-4" />
       </Button>
     </div>
+  );
+}
+
+/** Sticker / image options: mirroring and opacity (move, resize and rotate use the frame). */
+function ImageStylePopover({ image }: { image: NonNullable<SelectionInfo['image']> }) {
+  const e = useSession().engine;
+  return (
+    <>
+      <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="Отразить по горизонтали" title="Отразить по горизонтали" aria-pressed={image.flipX} onClick={() => e?.updateSelectedImages({ flipX: !image.flipX })}>
+        <FlipHorizontal2 className="h-4 w-4" />
+      </Button>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label={image.sticker ? 'Настройки стикера' : 'Настройки изображения'} title="Прозрачность и отражение" data-testid="image-style">
+            <SlidersHorizontal className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[min(18rem,calc(100vw-24px))]" onOpenAutoFocus={(ev) => ev.preventDefault()}>
+          <div className="flex flex-col gap-4">
+            <Slider label="Непрозрачность" min={10} max={100} value={Math.round(image.opacity * 100)} onChange={(v) => e?.updateSelectedImages({ opacity: v / 100 })} format={(v) => `${v}%`} />
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant={image.flipX ? 'default' : 'secondary'} size="sm" onClick={() => e?.updateSelectedImages({ flipX: !image.flipX })}>
+                <FlipHorizontal2 className="h-4 w-4" /> По горизонтали
+              </Button>
+              <Button variant={image.flipY ? 'default' : 'secondary'} size="sm" onClick={() => e?.updateSelectedImages({ flipY: !image.flipY })}>
+                <FlipVertical2 className="h-4 w-4" /> По вертикали
+              </Button>
+            </div>
+            <p className="text-[12px] leading-snug text-muted-foreground">Тяните угловые ручки — размер, верхнюю точку — поворот.</p>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 

@@ -16,11 +16,12 @@ import {
   Sparkles,
   Square,
   SquareDashed,
+  Sticker,
   Triangle,
   Type,
 } from 'lucide-react';
 import { ColorSwatch, Label, Segmented, Slider, Switch } from '@/components/ui/controls';
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/menu';
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/menu';
 import { Button } from '@/components/ui/button';
 import type { ToolKind } from '@/engine/tools';
 import { FONT_LABELS } from '@/engine/text';
@@ -31,6 +32,7 @@ import { prepareImage } from '@/lib/images';
 import { cn } from '@/lib/utils';
 import type { FontFamilyKey, ShapeElementKind, TextAlign } from '@/model/types';
 import { PenOptions } from './PenOptions';
+import { StickerStudio } from '@/features/stickers/StickerStudio';
 import { HIGHLIGHTER_COLORS, PEN_COLORS, SHAPE_FILLS, useSettings, type ToolSettings } from '@/store/settings';
 import { errorMessage, toast } from '@/store/ui';
 
@@ -102,6 +104,7 @@ export const Toolbar = memo(function Toolbar({ compact }: { compact?: boolean })
   const update = useSettings((s) => s.updateTools);
   const session = useSession();
   const [optionsFor, setOptionsFor] = useState<ToolKind | null>(null);
+  const [stickers, setStickers] = useState(false);
 
   const select = (tool: ToolKind) => {
     if (tools.tool === tool) setOptionsFor(optionsFor === tool ? null : tool);
@@ -157,6 +160,16 @@ export const Toolbar = memo(function Toolbar({ compact }: { compact?: boolean })
       <button onClick={() => void insertImage()} aria-label="Вставить изображение" title="Вставить изображение" className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-foreground/80 hover:bg-muted">
         <ImagePlus className="h-[22px] w-[22px]" />
       </button>
+      <Popover open={stickers} onOpenChange={setStickers}>
+        <PopoverTrigger asChild>
+          <button aria-label="Стикеры" title="Стикеры" aria-pressed={stickers} data-testid="tool-stickers" className={cn('grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors', stickers ? 'bg-accent text-accent-foreground' : 'text-foreground/80 hover:bg-muted')}>
+            <Sticker className="h-[22px] w-[22px]" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[min(25rem,calc(100vw-24px))] max-h-[min(70dvh,560px)]" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <StickerStudio onInserted={() => setStickers(false)} />
+        </PopoverContent>
+      </Popover>
 
       {!compact && (color || presets) && <div className="mx-2 h-6 w-px shrink-0 bg-border" />}
       {!compact && color && (

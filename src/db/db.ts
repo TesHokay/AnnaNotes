@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Asset, BackupMetadata, Folder, Notebook, Page, PageElement, SettingRecord } from '@/model/types';
+import type { Asset, BackupMetadata, Folder, Notebook, NotebookCoverRecord, Page, PageElement, SettingRecord, StickerAsset } from '@/model/types';
 
 export const DB_NAME = 'pencil-notes';
 
@@ -10,6 +10,8 @@ export const DB_NAME = 'pencil-notes';
  * v1 — initial schema.
  * v2 — indexes elements.assetId and pages.pdfAssetId (asset reference counting) and
  *      backfills them; normalises missing `bookmarked` flags.
+ * v3 — (4.3) adds `stickers` (imported Sticker Studio stickers, Blob) and `covers` (custom
+ *      notebook covers, keyed by notebook id). Additive only: no existing record is touched.
  */
 export const SCHEMA_V1 = {
   folders: 'id, parentId, name',
@@ -27,6 +29,12 @@ export const SCHEMA_V2 = {
   elements: 'id, pageId, notebookId, assetId',
 } as const;
 
+export const SCHEMA_V3 = {
+  ...SCHEMA_V2,
+  stickers: 'id, createdAt',
+  covers: 'id, updatedAt',
+} as const;
+
 export class PencilNotesDB extends Dexie {
   folders!: EntityTable<Folder, 'id'>;
   notebooks!: EntityTable<Notebook, 'id'>;
@@ -35,6 +43,8 @@ export class PencilNotesDB extends Dexie {
   assets!: EntityTable<Asset, 'id'>;
   settings!: EntityTable<SettingRecord, 'key'>;
   backupsMetadata!: EntityTable<BackupMetadata, 'id'>;
+  stickers!: EntityTable<StickerAsset, 'id'>;
+  covers!: EntityTable<NotebookCoverRecord, 'id'>;
 
   constructor(name = DB_NAME) {
     super(name);
@@ -55,10 +65,11 @@ export class PencilNotesDB extends Dexie {
           .filter((el: PageElement) => el.type === 'image')
           .modify(() => {});
       });
+    this.version(3).stores(SCHEMA_V3);
   }
 }
 
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
 
 let instance: PencilNotesDB | null = null;
 

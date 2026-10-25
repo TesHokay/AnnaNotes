@@ -4,9 +4,22 @@ import { LINE_HEIGHT } from '@/engine/text';
 import { renderPdfRegion } from '@/pdf/pdfjs';
 import type { Page, PageElement, TextElement } from '@/model/types';
 import { canvasToBlob } from '@/lib/images';
+import { paperKey } from '@/model/cutePaper';
 import type { DecodedImage } from '@/engine/imageCache';
 
 const getBlob = async (id: string) => (await getAsset(id))?.blob;
+
+async function decodeSvg(blob: Blob): Promise<HTMLImageElement> {
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 async function decodeAll(elements: readonly PageElement[]): Promise<Map<string, DecodedImage>> {
   const map = new Map<string, DecodedImage>();
@@ -15,7 +28,8 @@ async function decodeAll(elements: readonly PageElement[]): Promise<Map<string, 
     const blob = await getBlob(el.assetId);
     if (blob) {
       try {
-        map.set(el.assetId, await createImageBitmap(blob));
+        // createImageBitmap cannot decode SVG (stickers): fall back to <img>.
+        map.set(el.assetId, blob.type === 'image/svg+xml' ? await decodeSvg(blob) : await createImageBitmap(blob));
       } catch {
         /* missing/undecodable image is drawn as a placeholder */
       }
@@ -93,7 +107,7 @@ function enqueueThumb<T>(job: () => Promise<T>): Promise<T> {
 
 /** Small JPEG thumbnail as an object URL, cached per page version. */
 export async function pageThumbnail(page: Page, version: number, width = 180, elements?: readonly PageElement[]): Promise<string> {
-  const key = `${page.id}:${version}:${page.template}:${page.paperColor}:${page.width}`;
+  const key = `${page.id}:${version}:${paperKey(page)}:${page.width}`;
   const cached = thumbCache.get(key);
   if (cached) return cached;
   return enqueueThumb(() => renderThumb(page, key, width, elements));

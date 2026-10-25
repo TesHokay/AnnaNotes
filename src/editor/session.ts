@@ -102,8 +102,9 @@ export class EditorSession {
     const target = new Set(pageIds);
     const plain = pages.filter((p) => target.has(p.id) && !p.pdf).map((p) => p.id);
     const pdf = pages.filter((p) => target.has(p.id) && p.pdf).map((p) => p.id);
-    if (plain.length) await updatePages(plain, { template: setup.template, paperColor: setup.paperColor, width, height, size: setup.size });
-    if (pdf.length) await updatePages(pdf, { template: setup.template, paperColor: setup.paperColor });
+    const paper = { template: setup.template, paperColor: setup.paperColor, style: setup.style };
+    if (plain.length) await updatePages(plain, { ...paper, width, height, size: setup.size });
+    if (pdf.length) await updatePages(pdf, paper);
     await this.afterPageOp();
   }
 

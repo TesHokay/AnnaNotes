@@ -23,7 +23,7 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number)
   return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), type, quality));
 }
 
-async function decodeImage(blob: Blob): Promise<{ source: CanvasImageSource; width: number; height: number; close(): void }> {
+export async function decodeImage(blob: Blob): Promise<{ source: CanvasImageSource; width: number; height: number; close(): void }> {
   if (typeof createImageBitmap === 'function') {
     try {
       const bmp = await createImageBitmap(blob);
@@ -73,15 +73,43 @@ export async function prepareImage(file: Blob): Promise<PreparedImage> {
 export async function blobToPngBytes(blob: Blob): Promise<Uint8Array | null> {
   try {
     const img = await decodeImage(blob);
+    // Vector stickers are rasterised large enough for print (≈1024 px on the long side).
+    const k = blob.type === 'image/svg+xml' ? 1024 / Math.max(1, img.width, img.height) : 1;
     const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    canvas.getContext('2d')?.drawImage(img.source, 0, 0);
+    canvas.width = Math.max(1, Math.round(img.width * k));
+    canvas.height = Math.max(1, Math.round(img.height * k));
+    canvas.getContext('2d')?.drawImage(img.source, 0, 0, canvas.width, canvas.height);
     img.close();
     const out = await canvasToBlob(canvas, 'image/png');
     return new Uint8Array(await out.arrayBuffer());
   } catch {
     return null;
+  }
+}
+
+/**
+ * Decodes any image the browser can read (PNG, JPEG, WebP, HEIC on iOS…) and re-encodes it
+ * no larger than `maxSide`. Used for cover photos and imported stickers.
+ */
+export async function downscaleImage(file: Blob, maxSide: number, type: 'image/png' | 'image/jpeg' = 'image/jpeg', quality = 0.88): Promise<PreparedImage> {
+  if (file.size > MAX_IMAGE_BYTES) throw new ImportError(`Изображение слишком большое (максимум ${MAX_IMAGE_BYTES / 1024 / 1024} МБ)`);
+  const img = await decodeImage(file);
+  try {
+    const k = Math.min(1, maxSide / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * k));
+    const h = Math.max(1, Math.round(img.height * k));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new ImportError('Canvas недоступен');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img.source, 0, 0, w, h);
+    const blob = await canvasToBlob(canvas, type, type === 'image/jpeg' ? quality : undefined);
+    canvas.width = canvas.height = 0;
+    return { blob, width: w, height: h };
+  } finally {
+    img.close();
   }
 }
 

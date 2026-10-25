@@ -40,11 +40,44 @@ function PdfCover({ nb }: { nb: Notebook }) {
   );
 }
 
+const thumbUrls = new Map<string, { version: number; url: string }>();
+
+/** Object URL of the stored cover thumbnail, cached per notebook and cover version. */
+function useCustomCover(nb: Notebook): string | null {
+  const version = nb.coverVersion ?? 0;
+  const cached = thumbUrls.get(nb.id);
+  const [url, setUrl] = useState<string | null>(cached && cached.version === version ? cached.url : null);
+  useEffect(() => {
+    if (!version) return setUrl(null);
+    const hit = thumbUrls.get(nb.id);
+    if (hit && hit.version === version) return setUrl(hit.url);
+    let cancelled = false;
+    void getDB()
+      .covers.get(nb.id)
+      .then((rec) => {
+        if (cancelled || !rec?.thumb) return;
+        const prev = thumbUrls.get(nb.id);
+        if (prev) URL.revokeObjectURL(prev.url);
+        const u = URL.createObjectURL(rec.thumb);
+        thumbUrls.set(nb.id, { version, url: u });
+        setUrl(u);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [nb.id, version]);
+  return version ? url : null;
+}
+
 export const NotebookCover = memo(function NotebookCover({ nb, className }: { nb: Notebook; className?: string }) {
+  const custom = useCustomCover(nb);
   return (
     <div className={cn('relative aspect-[3/4] w-full', className)}>
       {nb.kind === 'pdf' ? (
         <PdfCover nb={nb} />
+      ) : custom ? (
+        <img src={custom} alt="" draggable={false} className="h-full w-full rounded-l-[6px] rounded-r-[12px] object-cover shadow-soft" data-testid="custom-cover" />
       ) : (
         <div className="relative h-full w-full overflow-hidden rounded-l-[6px] rounded-r-[12px] shadow-soft" style={{ background: nb.coverColor }}>
           <div className="absolute inset-y-0 left-0 w-[9%] bg-black/15" />

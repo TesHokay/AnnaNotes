@@ -1,5 +1,6 @@
 import { uuid } from '@/lib/id';
-import type { BBox, Page, PageElement, ShapeElement, TextElement, UUID } from '@/model/types';
+import { paperKey } from '@/model/cutePaper';
+import type { BBox, ImageElement, Page, PageElement, ShapeElement, TextElement, UUID } from '@/model/types';
 import { BoxResizeAction, drawOrientedFrame, hitBoxHandles, isBoxElement, type BoxElement } from './boxEdit';
 
 function pickShapeStyle(e: ShapeElement): NonNullable<SelectionInfo['shape']> {
@@ -40,7 +41,11 @@ export interface SelectionInfo {
   hasText: boolean;
   /** Style of the selected vector shapes (present when the selection contains only shapes). */
   shape?: Pick<ShapeElement, 'kind' | 'stroke' | 'fill' | 'strokeWidth' | 'opacity' | 'cornerRadius'>;
+  /** Present when the selection is exactly one image or sticker. */
+  image?: { opacity: number; flipX: boolean; flipY: boolean; sticker: boolean };
 }
+
+export type ImagePatch = Partial<Pick<ImageElement, 'opacity' | 'flipX' | 'flipY'>>;
 
 export type ShapeStylePatch = Partial<Pick<ShapeElement, 'stroke' | 'fill' | 'strokeWidth' | 'opacity' | 'cornerRadius'>>;
 
@@ -258,7 +263,7 @@ export class DrawingEngine {
     this.pageById = new Map(pages.map((p) => [p.id, p]));
     for (const p of pages) {
       const o = old.get(p.id);
-      if (o && (o.width !== p.width || o.height !== p.height || o.template !== p.template || o.paperColor !== p.paperColor)) this.dropCache(p.id);
+      if (o && (o.width !== p.width || o.height !== p.height || paperKey(o) !== paperKey(p))) this.dropCache(p.id);
     }
     for (const id of [...this.caches.keys()]) if (!this.pageById.has(id)) this.dropCache(id);
     const anchorSlot = prevPageId ? this.layout.slots.find((s) => s.id === prevPageId) : undefined;
@@ -447,13 +452,17 @@ export class DrawingEngine {
     return this.selection !== null;
   }
 
-  insertImage(assetId: UUID, naturalWidth: number, naturalHeight: number): void {
+  /**
+   * Inserts an image (or a sticker: `opts.maxSide` sets its display size, `opts.extra` its
+   * sticker metadata) in the middle of the visible part of the current page and selects it.
+   */
+  insertImage(assetId: UUID, naturalWidth: number, naturalHeight: number, opts: { maxSide?: number; extra?: Partial<ImageElement> } = {}): void {
     const pageId = this.currentPageId();
     const page = pageId ? this.pageById.get(pageId) : undefined;
     if (!page) return;
-    const maxW = page.width * 0.6;
-    const maxH = page.height * 0.6;
-    const k = Math.min(1, maxW / naturalWidth, maxH / naturalHeight);
+    const maxW = Math.min(page.width * 0.6, opts.maxSide ?? Infinity);
+    const maxH = Math.min(page.height * 0.6, opts.maxSide ?? Infinity);
+    const k = opts.maxSide ? Math.min(maxW / naturalWidth, maxH / naturalHeight) : Math.min(1, maxW / naturalWidth, maxH / naturalHeight);
     const w = naturalWidth * k;
     const h = naturalHeight * k;
     // Centre on the visible part of the page.
@@ -461,7 +470,7 @@ export class DrawingEngine {
     const center = this.viewport.toDoc({ x: this.viewport.width / 2, y: this.viewport.height / 2 });
     const cx = Math.min(Math.max(center.x - slot.x, w / 2), page.width - w / 2);
     const cy = Math.min(Math.max(center.y - slot.y, h / 2), page.height - h / 2);
-    const el: PageElement = {
+    const el = {
       id: uuid(),
       type: 'image',
       pageId: page.id,
@@ -474,9 +483,10 @@ export class DrawingEngine {
       height: h,
       rotation: 0,
       assetId,
-    };
+      ...opts.extra,
+    } as ImageElement;
     void this.images.load(assetId);
-    this.model.apply({ removed: [], added: [el] }, { history: 'Изображение', persist: true });
+    this.model.apply({ removed: [], added: [el] }, { history: opts.extra?.sticker ? 'Стикер' : 'Изображение', persist: true });
     this.setSelection({ pageId: page.id, ids: [el.id], bbox: selectionBBox([el]) });
   }
 
@@ -603,6 +613,7 @@ export class DrawingEngine {
       hasStrokes: els.some((e) => e.type === 'stroke'),
       hasText: els.some((e) => e.type === 'text'),
       shape: els.length && els.every((e) => e.type === 'shape') ? pickShapeStyle(els[0] as ShapeElement) : undefined,
+      image: els.length === 1 && els[0]!.type === 'image' ? { opacity: els[0]!.opacity ?? 1, flipX: !!els[0]!.flipX, flipY: !!els[0]!.flipY, sticker: !!els[0]!.sticker } : undefined,
     });
   }
 
@@ -620,6 +631,15 @@ export class DrawingEngine {
     if (!els.length) return;
     const updated = els.map((e) => ({ ...e, ...patch }));
     this.model.apply({ removed: els, added: updated }, { history: 'Стиль фигуры', persist: true, mergeKey: `style:${els.map((e) => e.id).join(',')}:${Object.keys(patch).join(',')}` });
+    this.emitSelection(true);
+  }
+
+  /** Opacity / mirroring of selected images and stickers. Slider drags merge into one undo step. */
+  updateSelectedImages(patch: ImagePatch): void {
+    const els = this.selectedElements().filter((e): e is ImageElement => e.type === 'image');
+    if (!els.length) return;
+    const updated = els.map((e) => ({ ...e, ...patch }));
+    this.model.apply({ removed: els, added: updated }, { history: 'Стикер', persist: true, mergeKey: 'opacity' in patch ? `img:${els.map((e) => e.id).join(',')}:opacity` : undefined });
     this.emitSelection(true);
   }
 

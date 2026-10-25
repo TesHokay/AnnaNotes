@@ -2,8 +2,8 @@ import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { getDB } from '@/db/db';
 import { toStorageError } from '@/db/errors';
 import { uuid } from '@/lib/id';
-import type { Asset, Folder, Notebook, Page, PageElement, UUID } from '@/model/types';
-import { BACKUP_FORMAT, BACKUP_VERSION, MAX_BACKUP_BYTES, BackupValidationError, validateManifest, type AssetMeta, type BackupManifest } from './format';
+import type { Asset, Folder, Notebook, NotebookCoverRecord, Page, PageElement, StickerAsset, UUID } from '@/model/types';
+import { BACKUP_FORMAT, BACKUP_VERSION, MAX_BACKUP_BYTES, BackupValidationError, validateManifest, type AssetMeta, type BackupManifest, type CoverMeta, type StickerMeta } from './format';
 
 const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev';
 
@@ -35,6 +35,30 @@ export async function createBackup(scope: 'notebook' | 'library', notebookIds?: 
     files[file] = [await blobBytes(blob), { level: 0 }];
     assetMetas.push({ ...meta, file });
   }
+  const coverMetas: CoverMeta[] = [];
+  for (const c of (await db.covers.bulkGet(ids)).filter((x): x is NotebookCoverRecord => !!x)) {
+    const { photo, thumb, ...meta } = c;
+    const cm: CoverMeta = { ...meta };
+    if (photo) {
+      cm.photoFile = `assets/cover-${c.id}-photo.bin`;
+      cm.photoMime = photo.type;
+      files[cm.photoFile] = [await blobBytes(photo), { level: 0 }];
+    }
+    if (thumb) {
+      cm.thumbFile = `assets/cover-${c.id}-thumb.bin`;
+      files[cm.thumbFile] = [await blobBytes(thumb), { level: 0 }];
+    }
+    coverMetas.push(cm);
+  }
+  const stickerMetas: StickerMeta[] = [];
+  if (scope === 'library') {
+    for (const st of await db.stickers.toArray()) {
+      const { blob, ...meta } = st;
+      const file = `assets/sticker-${st.id}.bin`;
+      files[file] = [await blobBytes(blob), { level: st.mime === 'image/svg+xml' ? 6 : 0 }];
+      stickerMetas.push({ ...meta, file });
+    }
+  }
   const manifest: BackupManifest = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -46,6 +70,8 @@ export async function createBackup(scope: 'notebook' | 'library', notebookIds?: 
     pages,
     elements,
     assets: assetMetas,
+    covers: coverMetas,
+    stickers: stickerMetas,
   };
   files['manifest.json'] = [strToU8(JSON.stringify(manifest)), { level: 6 }];
   const zip = zipSync(files);
@@ -76,7 +102,8 @@ export function parseBackup(bytes: Uint8Array): ParsedBackup {
     throw new BackupValidationError(['manifest.json не является корректным JSON']);
   }
   const manifest = validateManifest(raw);
-  for (const a of manifest.assets) if (!files[a.file]) throw new BackupValidationError([`в архиве отсутствует файл ${a.file}`]);
+  const needed = [...manifest.assets.map((a) => a.file), ...manifest.stickers.map((s) => s.file), ...manifest.covers.flatMap((c) => [c.photoFile, c.thumbFile]).filter((f): f is string => !!f)];
+  for (const f of needed) if (!files[f]) throw new BackupValidationError([`в архиве отсутствует файл ${f}`]);
   return { manifest, files };
 }
 
@@ -122,6 +149,14 @@ export async function restoreBackup(parsed: ParsedBackup, mode: 'merge' | 'repla
     const base = { ...e, id: remap(e.id), pageId: remap(e.pageId), notebookId: remap(e.notebookId) };
     return e.type === 'image' ? ({ ...base, assetId: remap(e.assetId) } as PageElement) : (base as PageElement);
   });
+  const covers: NotebookCoverRecord[] = m.covers.map(({ photoFile, photoMime, thumbFile, ...meta }) => ({
+    ...meta,
+    id: remap(meta.id),
+    ...(photoFile ? { photo: new Blob([files[photoFile]!], { type: photoMime || 'image/jpeg' }) } : {}),
+    ...(thumbFile ? { thumb: new Blob([files[thumbFile]!], { type: 'image/jpeg' }) } : {}),
+  }));
+  // Stickers keep their ids: restoring the same library twice does not duplicate them.
+  const stickers: StickerAsset[] = m.stickers.map(({ file, ...meta }) => ({ ...meta, blob: new Blob([files[file]!], { type: meta.mime }) }));
   // Page counts are derived, recompute instead of trusting the file.
   const counts = new Map<UUID, number>();
   for (const p of pages) counts.set(p.notebookId, (counts.get(p.notebookId) ?? 0) + 1);
@@ -129,10 +164,12 @@ export async function restoreBackup(parsed: ParsedBackup, mode: 'merge' | 'repla
 
   const db = getDB();
   try {
-    await db.transaction('rw', [db.folders, db.notebooks, db.pages, db.elements, db.assets, db.backupsMetadata], async () => {
+    await db.transaction('rw', [db.folders, db.notebooks, db.pages, db.elements, db.assets, db.backupsMetadata, db.covers, db.stickers], async () => {
       if (mode === 'replace') {
-        await Promise.all([db.folders.clear(), db.notebooks.clear(), db.pages.clear(), db.elements.clear(), db.assets.clear()]);
+        await Promise.all([db.folders.clear(), db.notebooks.clear(), db.pages.clear(), db.elements.clear(), db.assets.clear(), db.covers.clear()]);
       }
+      await db.covers.bulkPut(covers);
+      await db.stickers.bulkPut(stickers);
       await db.assets.bulkPut(assets);
       await db.folders.bulkPut(folders);
       await db.notebooks.bulkPut(notebooks);

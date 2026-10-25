@@ -1,4 +1,5 @@
-import { isDarkPaper, TEMPLATE_SPACING } from '@/model/paper';
+import { isDarkPaper } from '@/model/paper';
+import { paperDecor, resolveRuling, rgba, type DecorShape } from '@/model/cutePaper';
 import type { BBox, ImageElement, Page, PageElement, ShapeElement, StrokeElement, TextElement } from '@/model/types';
 import { drawShapeElement } from './shapeElement';
 import { bboxIntersects, elementBBox } from './geometry';
@@ -96,13 +97,15 @@ export function drawTextElement(ctx: CanvasRenderingContext2D, el: TextElement):
 export function drawImageElement(ctx: CanvasRenderingContext2D, el: ImageElement, resolve: ImageResolver): void {
   const img = resolve(el.assetId);
   ctx.save();
-  if (el.rotation) {
+  if (el.rotation || el.flipX || el.flipY) {
     const cx = el.x + el.width / 2;
     const cy = el.y + el.height / 2;
     ctx.translate(cx, cy);
-    ctx.rotate(el.rotation);
+    if (el.rotation) ctx.rotate(el.rotation);
+    if (el.flipX || el.flipY) ctx.scale(el.flipX ? -1 : 1, el.flipY ? -1 : 1);
     ctx.translate(-cx, -cy);
   }
+  if (el.opacity !== undefined && el.opacity < 1) ctx.globalAlpha = Math.max(0.05, el.opacity);
   if (img) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, el.x, el.y, el.width, el.height);
@@ -207,32 +210,62 @@ export function drawElements(ctx: CanvasRenderingContext2D, elements: readonly P
   for (const t of texts) drawTextElement(ctx, t);
 }
 
-/** Paper colour and ruling. The context transform must map page coordinates to pixels. */
-export function drawTemplate(ctx: CanvasRenderingContext2D, page: Pick<Page, 'width' | 'height' | 'template' | 'paperColor'>, pixelScale: number): void {
+const decorPaths = new Map<string, Path2D>();
+
+function decorPath(d: string): Path2D | null {
+  if (typeof Path2D === 'undefined') return null;
+  let p = decorPaths.get(d);
+  if (!p) {
+    p = new Path2D(d);
+    if (decorPaths.size > 60) decorPaths.clear();
+    decorPaths.set(d, p);
+  }
+  return p;
+}
+
+function drawDecor(ctx: CanvasRenderingContext2D, shapes: readonly DecorShape[], layer: DecorShape['layer']): void {
+  for (const sh of shapes) {
+    if (sh.layer !== layer) continue;
+    const p = decorPath(sh.d);
+    if (!p) continue;
+    ctx.globalAlpha = sh.opacity;
+    ctx.fillStyle = sh.fill;
+    ctx.fill(p);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * Paper colour, ruling and decorations (Cute Paper). The context transform must map page
+ * coordinates to pixels. Everything is vector, so the ruling stays crisp at any zoom.
+ */
+export function drawTemplate(ctx: CanvasRenderingContext2D, page: Pick<Page, 'width' | 'height' | 'template' | 'paperColor' | 'style'>, pixelScale: number): void {
   ctx.fillStyle = page.paperColor;
   ctx.fillRect(0, 0, page.width, page.height);
-  if (page.template === 'blank') return;
+  const decor = paperDecor(page);
+  if (page.template === 'blank' && !decor.length) return;
+  const r = resolveRuling(page);
   const dark = isDarkPaper(page.paperColor);
-  const line = dark ? 'rgba(255,255,255,0.16)' : 'rgba(60,90,140,0.22)';
   const hair = Math.max(0.5 / pixelScale, 0.35);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, page.width, page.height);
   ctx.clip();
+  drawDecor(ctx, decor, 'under');
+  const s = r.spacing;
   if (page.template === 'dotted') {
-    const s = TEMPLATE_SPACING.dotted;
-    const r = Math.max(0.8, 0.9 / pixelScale);
-    ctx.fillStyle = dark ? 'rgba(255,255,255,0.28)' : 'rgba(60,90,140,0.38)';
+    const rad = Math.max(0.8, 0.9 / pixelScale);
+    ctx.fillStyle = rgba(r.color, Math.min(1, r.alpha + 0.16));
+    ctx.beginPath();
     for (let y = s; y < page.height; y += s) {
       for (let x = s; x < page.width; x += s) {
-        ctx.beginPath();
-        ctx.arc(x, y, r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(x + rad, y);
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
       }
     }
+    ctx.fill();
   } else if (page.template === 'grid') {
-    const s = TEMPLATE_SPACING.grid;
-    ctx.strokeStyle = line;
+    ctx.strokeStyle = rgba(r.color, r.alpha);
     ctx.lineWidth = hair;
     ctx.beginPath();
     for (let x = s; x < page.width; x += s) {
@@ -245,8 +278,7 @@ export function drawTemplate(ctx: CanvasRenderingContext2D, page: Pick<Page, 'wi
     }
     ctx.stroke();
   } else if (page.template === 'lined') {
-    const s = TEMPLATE_SPACING.lined;
-    ctx.strokeStyle = line;
+    ctx.strokeStyle = rgba(r.color, r.alpha);
     ctx.lineWidth = hair;
     ctx.beginPath();
     for (let y = s * 3; y < page.height - s / 2; y += s) {
@@ -254,11 +286,14 @@ export function drawTemplate(ctx: CanvasRenderingContext2D, page: Pick<Page, 'wi
       ctx.lineTo(page.width, y);
     }
     ctx.stroke();
-    ctx.strokeStyle = dark ? 'rgba(255,120,120,0.35)' : 'rgba(230,80,80,0.35)';
-    ctx.beginPath();
-    ctx.moveTo(s * 3, 0);
-    ctx.lineTo(s * 3, page.height);
-    ctx.stroke();
+    if (r.margin) {
+      ctx.strokeStyle = dark ? 'rgba(255,120,120,0.35)' : 'rgba(230,80,80,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(s * 3, 0);
+      ctx.lineTo(s * 3, page.height);
+      ctx.stroke();
+    }
   }
+  drawDecor(ctx, decor, 'over');
   ctx.restore();
 }

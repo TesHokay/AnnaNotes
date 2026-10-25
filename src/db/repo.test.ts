@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 import Dexie from 'dexie';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { PencilNotesDB, SCHEMA_V1, setDB } from './db';
+import { PencilNotesDB, SCHEMA_V1, SCHEMA_V2, setDB } from './db';
 import {
   addPage,
   createFolder,
@@ -114,7 +114,7 @@ describe('schema migration v1 -> v2', () => {
     const v2 = new PencilNotesDB(name);
     setDB(v2);
     await v2.open();
-    expect(v2.verno).toBe(2);
+    expect(v2.verno).toBe(3);
     const page = await v2.pages.get('p');
     expect(page!.pdfAssetId).toBe('asset-1');
     expect(page!.bookmarked).toBe(1);
@@ -122,6 +122,35 @@ describe('schema migration v1 -> v2', () => {
     expect(await v2.elements.where('assetId').equals('asset-2').count()).toBe(1);
     expect((await v2.notebooks.get('nb'))!.title).toBe('Old');
     v2.close();
+  });
+});
+
+describe('schema migration v2 -> v3 (4.3)', () => {
+  it('keeps every existing record and adds the sticker and cover tables', async () => {
+    const name = `migrate3-${uuid()}`;
+    const v2 = new Dexie(name);
+    v2.version(1).stores(SCHEMA_V1);
+    v2.version(2).stores(SCHEMA_V2);
+    await v2.open();
+    await v2.table('notebooks').add({ id: 'nb', title: 'Конспект', kind: 'notebook', folderId: null, coverColor: '#f4a6c1', favorite: 1, createdAt: 1, updatedAt: 1, openedAt: 0, deletedAt: 0, pageCount: 1, defaultSetup: DEFAULT_SETUP });
+    await v2.table('pages').add({ id: 'p', notebookId: 'nb', order: 1, width: 100, height: 100, size: 'A4', template: 'lined', paperColor: '#fff', pdf: null, bookmarked: 0, createdAt: 1, updatedAt: 1 });
+    await v2.table('elements').add({ id: 's', type: 'stroke', pageId: 'p', notebookId: 'nb', z: 1, points: [] });
+    await v2.table('settings').add({ key: 'tools', value: { tool: 'pen' } });
+    v2.close();
+
+    const v3 = new PencilNotesDB(name);
+    setDB(v3);
+    await v3.open();
+    expect(v3.verno).toBe(3);
+    expect((await v3.notebooks.get('nb'))!.title).toBe('Конспект');
+    expect(await v3.pages.count()).toBe(1);
+    expect(await v3.elements.count()).toBe(1);
+    expect((await v3.settings.get('tools'))!.value).toEqual({ tool: 'pen' });
+    await v3.stickers.add({ id: 'st', name: 'cat', mime: 'image/png', blob: new Blob(['x']), width: 1, height: 1, createdAt: 1 });
+    await v3.covers.put({ id: 'nb', design: { background: '#fff', pattern: 'none', patternColor: '#000', title: '', font: 'serif', fontSize: 0.1, textColor: '#000', textY: 0.3, align: 'center', label: false, decor: [], accent: '#000' }, updatedAt: 1 });
+    expect(await v3.stickers.count()).toBe(1);
+    expect(await v3.covers.count()).toBe(1);
+    v3.close();
   });
 });
 

@@ -1,6 +1,6 @@
 import { uuid } from '@/lib/id';
 import { DEFAULT_SETUP, COVER_COLORS, pageDimensions } from '@/model/paper';
-import type { Asset, AssetKind, Folder, Notebook, Page, PageElement, PageSetup, UUID } from '@/model/types';
+import type { Asset, AssetKind, CoverDesign, Folder, Notebook, NotebookCoverRecord, Page, PageElement, PageSetup, StickerAsset, UUID } from '@/model/types';
 import { getDB } from './db';
 import { toStorageError } from './errors';
 
@@ -76,6 +76,7 @@ export function makePage(notebookId: UUID, order: number, setup: PageSetup): Pag
     size: setup.size,
     template: setup.template,
     paperColor: setup.paperColor,
+    ...(setup.style ? { style: setup.style } : {}),
     pdf: null,
     bookmarked: 0,
     createdAt: now(),
@@ -180,7 +181,7 @@ async function collectGarbageAssets(candidateIds: Iterable<UUID>): Promise<void>
 export function deleteNotebooksPermanently(ids: UUID[]): Promise<void> {
   return guard(async () => {
     const db = getDB();
-    await db.transaction('rw', [db.notebooks, db.pages, db.elements, db.assets], async () => {
+    await db.transaction('rw', [db.notebooks, db.pages, db.elements, db.assets, db.covers], async () => {
       const assetIds: UUID[] = [];
       for (const id of ids) {
         const pages = await db.pages.where('notebookId').equals(id).toArray();
@@ -190,6 +191,7 @@ export function deleteNotebooksPermanently(ids: UUID[]): Promise<void> {
         await db.elements.where('notebookId').equals(id).delete();
         await db.pages.where('notebookId').equals(id).delete();
         await db.notebooks.delete(id);
+        await db.covers.delete(id);
       }
       await collectGarbageAssets(assetIds);
     });
@@ -207,7 +209,7 @@ export function emptyTrash(): Promise<void> {
 export function duplicateNotebook(id: UUID): Promise<Notebook> {
   return guard(async () => {
     const db = getDB();
-    return db.transaction('rw', db.notebooks, db.pages, db.elements, async () => {
+    return db.transaction('rw', [db.notebooks, db.pages, db.elements, db.covers], async () => {
       const src = await db.notebooks.get(id);
       if (!src) throw new Error('Документ не найден');
       const copy: Notebook = { ...src, id: uuid(), title: `${src.title} (копия)`, createdAt: now(), updatedAt: now(), openedAt: 0, favorite: 0, deletedAt: 0 };
@@ -223,6 +225,8 @@ export function duplicateNotebook(id: UUID): Promise<Notebook> {
       await db.notebooks.add(copy);
       await db.pages.bulkAdd(newPages);
       await db.elements.bulkAdd(newEls);
+      const cover = await db.covers.get(id);
+      if (cover) await db.covers.add({ ...cover, id: copy.id });
       return copy;
     });
   });
@@ -313,7 +317,7 @@ export function movePage(notebookId: UUID, pageId: UUID, toIndex: number): Promi
   });
 }
 
-export function updatePages(ids: UUID[], patch: Partial<Pick<Page, 'template' | 'paperColor' | 'bookmarked' | 'width' | 'height' | 'size'>>): Promise<void> {
+export function updatePages(ids: UUID[], patch: Partial<Pick<Page, 'template' | 'paperColor' | 'style' | 'bookmarked' | 'width' | 'height' | 'size'>>): Promise<void> {
   return guard(async () => {
     await getDB().pages.where('id').anyOf(ids).modify({ ...patch, updatedAt: now() });
   });
@@ -360,5 +364,59 @@ export async function getSetting<T>(key: string, fallback: T): Promise<T> {
 export function setSetting(key: string, value: unknown): Promise<void> {
   return guard(async () => {
     await getDB().settings.put({ key, value });
+  });
+}
+
+// ---------------------------------------------------------------- covers (4.3)
+
+export function getCover(notebookId: UUID): Promise<NotebookCoverRecord | undefined> {
+  return guard(() => getDB().covers.get(notebookId));
+}
+
+/**
+ * Saves a custom cover. `photo`: a Blob replaces it, null removes it, undefined keeps it.
+ * Only the cover record and the notebook's cover fields change — pages and `updatedAt` are
+ * untouched, so the library order does not jump.
+ */
+export function saveCover(notebookId: UUID, design: CoverDesign, photo: Blob | null | undefined, thumb: Blob | undefined): Promise<void> {
+  return guard(async () => {
+    const db = getDB();
+    await db.transaction('rw', db.covers, db.notebooks, async () => {
+      const prev = await db.covers.get(notebookId);
+      const rec: NotebookCoverRecord = { id: notebookId, design, updatedAt: now(), thumb };
+      const keep = photo === undefined ? prev?.photo : photo ?? undefined;
+      if (keep) rec.photo = keep;
+      if (!keep) delete rec.design.photo;
+      await db.covers.put(rec);
+      const nb = await db.notebooks.get(notebookId);
+      if (nb) await db.notebooks.update(notebookId, { coverColor: design.background, coverVersion: (nb.coverVersion ?? 0) + 1 });
+    });
+  });
+}
+
+export function removeCover(notebookId: UUID): Promise<void> {
+  return guard(async () => {
+    const db = getDB();
+    await db.transaction('rw', db.covers, db.notebooks, async () => {
+      await db.covers.delete(notebookId);
+      const nb = await db.notebooks.get(notebookId);
+      if (nb) await db.notebooks.update(notebookId, { coverVersion: 0 });
+    });
+  });
+}
+
+// ---------------------------------------------------------------- stickers (4.3)
+
+export function addStickerAsset(input: Omit<StickerAsset, 'id' | 'createdAt'>): Promise<StickerAsset> {
+  return guard(async () => {
+    const rec: StickerAsset = { ...input, id: uuid(), createdAt: now() };
+    await getDB().stickers.add(rec);
+    return rec;
+  });
+}
+
+export function deleteStickerAsset(id: UUID): Promise<void> {
+  return guard(async () => {
+    await getDB().stickers.delete(id);
   });
 }

@@ -5,6 +5,8 @@ async function dismissOnboarding(page: Page) {
   if (await skip.waitFor({ state: 'visible', timeout: 4000 }).then(() => true, () => false)) await skip.click();
 }
 
+test.setTimeout(120_000);
+
 test('launch animation: seven launches, seven different languages, then the library', async ({ context }) => {
   const seen: string[] = [];
   for (let i = 0; i < 7; i++) {
@@ -15,8 +17,9 @@ test('launch animation: seven launches, seven different languages, then the libr
     await expect(splash).toBeVisible();
     seen.push((await splash.getAttribute('data-lang'))!);
     if (i === 0) {
-      // Plays to the end by itself and reveals the library.
-      await expect(splash).toBeHidden({ timeout: 6000 });
+      // Plays to the end by itself (no skip button any more) and reveals the library.
+      await expect(page.getByRole('button', { name: 'Пропустить анимацию' })).toHaveCount(0);
+      await expect(splash).toBeHidden({ timeout: 9000 });
       await dismissOnboarding(page);
       await expect(page.getByRole('heading', { name: 'Все документы' })).toBeVisible();
       // Reloading within the same session does not replay it.
@@ -24,8 +27,7 @@ test('launch animation: seven launches, seven different languages, then the libr
       await expect(page.getByRole('heading', { name: 'Все документы' })).toBeVisible();
       await expect(splash).toHaveCount(0);
     } else {
-      await page.getByRole('button', { name: 'Пропустить анимацию' }).click();
-      await expect(splash).toBeHidden();
+      await expect(splash).toBeHidden({ timeout: 9000 });
     }
     await page.close();
   }
@@ -38,4 +40,14 @@ test('launch animation can be turned off', async ({ page }) => {
   await expect(page.getByTestId('splash')).toHaveCount(0);
   await dismissOnboarding(page);
   await expect(page.getByRole('heading', { name: 'Все документы' })).toBeVisible();
+});
+
+test('reduced motion shows the finished phrase briefly and ends by itself', async ({ browser }) => {
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  await page.goto('/');
+  const splash = page.getByTestId('splash');
+  await expect(splash).toBeVisible();
+  await expect(splash).toBeHidden({ timeout: 5000 });
+  await context.close();
 });

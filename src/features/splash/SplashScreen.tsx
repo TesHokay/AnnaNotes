@@ -1,137 +1,91 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { composePhrase, type Composition } from './compose';
 import { PHRASES } from './glyphs';
+import { InkCanvas } from './InkCanvas';
 import { claimSplashForSession, isSplashEnabled, nextLanguage, type SplashLang } from './shuffleBag';
+
+export interface SplashPlan {
+  lang: SplashLang;
+  /** prefers-reduced-motion: the finished phrase is shown briefly instead of being written. */
+  reduced: boolean;
+}
 
 /**
  * Decided once per page load (module evaluation), so React re-renders or StrictMode double
  * invocation can never replay the animation or change the language.
  */
-function decide(): SplashLang | null {
+function decide(): SplashPlan | null {
   if (typeof window === 'undefined') return null;
   if (!isSplashEnabled()) return null;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return null;
   if (!claimSplashForSession(sessionStorage)) return null;
+  const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   try {
-    return nextLanguage(localStorage);
+    return { lang: nextLanguage(localStorage), reduced };
   } catch {
-    return 'en';
+    return { lang: 'en', reduced };
   }
 }
 
-export const SPLASH_LANG: SplashLang | null = decide();
+export const SPLASH: SplashPlan | null = decide();
 
-const FADE_MS = 420;
-const HOLD_MS = 380;
-
-function cssColor(name: string, fallback: string): string {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v ? `hsl(${v})` : fallback;
-}
+const FADE_MS = 650;
+/** The finished composition stays on screen for a moment before the library appears. */
+const HOLD_MS = 1100;
+const REDUCED_HOLD_MS = 1400;
 
 /**
  * Launch animation: an invisible calligraphy pen writes "I love you" in one of seven languages
- * along hand-authored centre lines (variable-width pointed-pen / brush strokes), then draws a
- * heart, then fades into the library. The app loads underneath in parallel.
+ * along hand-authored centre lines, then draws a heart, holds, and fades into the library. The
+ * app loads underneath in parallel. It always ends by itself; any failure ends it immediately.
  */
-export function SplashScreen({ lang, onDone }: { lang: SplashLang; onDone: () => void }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export function SplashScreen({ plan, onDone }: { plan: SplashPlan; onDone: () => void }) {
   const [fading, setFading] = useState(false);
   const doneRef = useRef(false);
+  const comp = useMemo<Composition | null>(() => {
+    try {
+      return composePhrase(plan.lang);
+    } catch {
+      return null;
+    }
+  }, [plan.lang]);
 
-  const finish = () => {
+  const finish = (delay: number) => {
     if (doneRef.current) return;
     doneRef.current = true;
-    setFading(true);
-    setTimeout(onDone, FADE_MS);
+    setTimeout(() => {
+      setFading(true);
+      setTimeout(onDone, FADE_MS);
+    }, delay);
   };
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) {
+    if (!comp) {
       onDone();
       return;
     }
-    let comp: Composition;
-    try {
-      comp = composePhrase(lang);
-    } catch {
-      onDone();
-      return;
-    }
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    const bw = comp.bbox.maxX - comp.bbox.minX;
-    const bh = comp.bbox.maxY - comp.bbox.minY;
-    // Fit inside the safe part of the screen on any device; long phrases get smaller, not clipped.
-    const k = Math.min((w * 0.84) / bw, (h * 0.3) / bh, lang === 'zh' ? 2.4 : 2.0);
-    const ox = (w - bw * k) / 2 - comp.bbox.minX * k;
-    const oy = h * 0.46 - (bh * k) / 2 - comp.bbox.minY * k;
-    ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    const ink = cssColor('--foreground', '#2a2226');
-    const heart = document.documentElement.classList.contains('dark') ? '#e0607a' : '#a3203a';
-    const drawn = comp.strokes.map(() => 0);
-    const t0 = performance.now();
-    let raf = 0;
-
-    const tick = () => {
-      const elapsed = performance.now() - t0;
-      comp.strokes.forEach((s, si) => {
-        if (elapsed < s.start) return;
-        const progress = Math.min(1, (elapsed - s.start) / s.duration);
-        let idx = drawn[si]!;
-        const last = s.pts.length - 1;
-        let target = idx;
-        while (target < last && s.times[target + 1]! <= progress) target++;
-        if (target <= idx && idx > 0) return;
-        ctx.strokeStyle = s.color === 'heart' ? heart : ink;
-        // Ink only accumulates: draw just the newly written segments (round caps, opaque ink).
-        for (let i = Math.max(1, idx); i <= target; i++) {
-          const a = s.pts[i - 1]!;
-          const b = s.pts[i]!;
-          ctx.beginPath();
-          ctx.lineWidth = (s.widths[i - 1]! + s.widths[i]!) / 2;
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(b.x, b.y);
-          ctx.stroke();
-        }
-        idx = Math.max(idx, target);
-        drawn[si] = idx;
-      });
-      if (elapsed >= comp.end + HOLD_MS) {
-        finish();
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    // Safety net: even if frames never run (throttled WebView), the app is never blocked.
+    const guard = setTimeout(() => finish(0), comp.end + HOLD_MS + 4000);
+    return () => clearTimeout(guard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
+  }, [comp]);
 
+  if (!comp) return null;
+  const zh = plan.lang === 'zh';
   return (
     <div
-      className={`fixed inset-0 z-[200] bg-background transition-opacity ease-out ${fading ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+      className={`pt-safe pb-safe pl-safe pr-safe fixed inset-0 z-[200] bg-background transition-opacity ease-out ${fading ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
       style={{ transitionDuration: `${FADE_MS}ms` }}
-      onPointerDown={finish}
       data-testid="splash"
-      data-lang={lang}
+      data-lang={plan.lang}
     >
-      <canvas ref={canvasRef} role="img" aria-label={PHRASES[lang]} className="absolute inset-0 h-full w-full" />
-      <button
-        type="button"
-        onClick={finish}
-        aria-label="Пропустить анимацию"
-        className="pb-safe absolute bottom-0 right-0 m-4 rounded-full bg-muted/70 px-4 py-2 text-[13px] text-muted-foreground backdrop-blur"
-      >
-        Пропустить
-      </button>
+      <InkCanvas
+        comp={comp}
+        animate={!plan.reduced}
+        label={PHRASES[plan.lang]}
+        className="absolute inset-0"
+        fit={(w, h) => ({ maxWidth: w * 0.84, maxHeight: h * 0.34, maxScale: zh ? 2.2 : 1.9, cx: w / 2, cy: h / 2 })}
+        onComplete={() => finish(plan.reduced ? REDUCED_HOLD_MS : HOLD_MS)}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import {
   ArrowDownUp,
   BookOpen,
@@ -67,7 +67,7 @@ import { useSettings, type SortKey } from '@/store/settings';
 import { errorMessage, navigate, toast } from '@/store/ui';
 import { ConfirmDialog, MoveDialog, NameDialog, NewNotebookDialog } from './dialogs';
 import { NotebookCover } from './NotebookCover';
-import { CoverEditorDialog } from '@/features/covers/CoverEditorDialog';
+const CoverEditorDialog = lazy(() => import('@/features/covers/CoverEditorDialog').then((m) => ({ default: m.CoverEditorDialog })));
 
 type Section = { kind: 'all' } | { kind: 'recent' } | { kind: 'favorites' } | { kind: 'trash' } | { kind: 'folder'; id: UUID };
 
@@ -524,7 +524,11 @@ export function LibraryView() {
         </div>
       </main>
 
-      {coverFor && <CoverEditorDialog notebook={coverFor} open onClose={() => setCoverFor(null)} />}
+      {coverFor && (
+        <Suspense fallback={null}>
+          <CoverEditorDialog notebook={coverFor} open onClose={() => setCoverFor(null)} />
+        </Suspense>
+      )}
       <NewNotebookDialog
         open={newNotebook}
         onClose={() => setNewNotebook(false)}

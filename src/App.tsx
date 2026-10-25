@@ -10,6 +10,7 @@ import { useSettings } from '@/store/settings';
 import { initUIListeners, useUI } from '@/store/ui';
 import { applyTheme } from '@/lib/theme';
 import { SplashScreen, SPLASH } from '@/features/splash/SplashScreen';
+import { HeartMoment } from '@/features/love/HeartMoment';
 
 const DiagnosticsView = lazy(() => import('@/features/diagnostics/DiagnosticsView').then((m) => ({ default: m.DiagnosticsView })));
 const EditorView = lazy(() => import('@/features/editor/EditorView').then((m) => ({ default: m.EditorView })));
@@ -87,6 +88,7 @@ export function App() {
       {splash && <SplashScreen plan={splash} onDone={() => setSplash(null)} />}
       <ImportDialog />
       {!splash && <Onboarding />}
+      {!splash && loaded && <HeartMoment />}
       <Toaster />
     </>
   );

@@ -4,6 +4,7 @@ import { createNotebook, getAsset, listPages, loadPageElements, putAsset } from 
 import { saveQueue } from '@/db/saveQueue';
 import { nextZ } from '@/engine/DocumentModel';
 import { saveFile } from '@/lib/files';
+import { trackTask } from '@/lib/activity';
 import { uuid } from '@/lib/id';
 import { blobToPngBytes, prepareImage } from '@/lib/images';
 
@@ -27,22 +28,24 @@ function stamp(): string {
 
 /** Imports PDFs and images from a file picker / drop. Returns the created notebooks. */
 export async function importFiles(files: File[], folderId: UUID | null): Promise<Notebook[]> {
-  const created: Notebook[] = [];
-  for (const file of files) {
-    try {
-      if (await isPdf(file)) {
-        toast(`Импорт «${file.name}»…`);
-        const { importPdfAsNotebook } = await loadPdfImport();
-        created.push(await importPdfAsNotebook(file, file.name, folderId));
-      } else {
-        created.push(await notebookFromImage(file, folderId));
+  return trackTask(async () => {
+    const created: Notebook[] = [];
+    for (const file of files) {
+      try {
+        if (await isPdf(file)) {
+          toast(`Импорт «${file.name}»…`);
+          const { importPdfAsNotebook } = await loadPdfImport();
+          created.push(await importPdfAsNotebook(file, file.name, folderId));
+        } else {
+          created.push(await notebookFromImage(file, folderId));
+        }
+      } catch (err) {
+        toast(`«${file.name}»: ${errorMessage(err)}`, { kind: 'error' });
       }
-    } catch (err) {
-      toast(`«${file.name}»: ${errorMessage(err)}`, { kind: 'error' });
     }
-  }
-  if (created.length) toast(`Импортировано: ${created.length} ${pluralRu(created.length, 'документ', 'документа', 'документов')}`, { kind: 'success' });
-  return created;
+    if (created.length) toast(`Импортировано: ${created.length} ${pluralRu(created.length, 'документ', 'документа', 'документов')}`, { kind: 'success' });
+    return created;
+  });
 }
 
 /** A new notebook whose first (blank) page holds the image, fitted with margins. */
@@ -75,40 +78,48 @@ export async function notebookFromImage(file: File, folderId: UUID | null): Prom
 }
 
 export async function exportNotebookAsPdf(nb: Notebook, onProgress?: (done: number, total: number) => void): Promise<void> {
-  await saveQueue.flush();
-  const pages = await listPages(nb.id);
-  const [{ exportNotebookPdf }, { rasterizeTextElement }] = await Promise.all([loadPdfExport(), loadRaster()]);
-  const bytes = await exportNotebookPdf(
-    pages,
-    { loadElements: loadPageElements, getAsset, rasterizeText: rasterizeTextElement, toPng: blobToPngBytes, onProgress },
-    nb.title,
-  );
-  await saveFile(bytes, `${nb.title}.pdf`, 'application/pdf');
+  return trackTask(async () => {
+    await saveQueue.flush();
+    const pages = await listPages(nb.id);
+    const [{ exportNotebookPdf }, { rasterizeTextElement }] = await Promise.all([loadPdfExport(), loadRaster()]);
+    const bytes = await exportNotebookPdf(
+      pages,
+      { loadElements: loadPageElements, getAsset, rasterizeText: rasterizeTextElement, toPng: blobToPngBytes, onProgress },
+      nb.title,
+    );
+    await saveFile(bytes, `${nb.title}.pdf`, 'application/pdf');
+  });
 }
 
 export async function exportPageAsPng(nb: Notebook, pageIndex: number): Promise<void> {
-  await saveQueue.flush();
-  const pages = await listPages(nb.id);
-  const page = pages[pageIndex];
-  if (!page) return;
-  const { exportPagePng } = await loadRaster();
-  const blob = await exportPagePng(page, 3);
-  await saveFile(blob, `${nb.title} — стр. ${pageIndex + 1}.png`, 'image/png');
+  return trackTask(async () => {
+    await saveQueue.flush();
+    const pages = await listPages(nb.id);
+    const page = pages[pageIndex];
+    if (!page) return;
+    const { exportPagePng } = await loadRaster();
+    const blob = await exportPagePng(page, 3);
+    await saveFile(blob, `${nb.title} — стр. ${pageIndex + 1}.png`, 'image/png');
+  });
 }
 
 export async function exportNotebookBackup(nb: Notebook): Promise<void> {
-  await saveQueue.flush();
-  const { createBackup } = await loadBackup();
-  const zip = await createBackup('notebook', [nb.id]);
-  await saveFile(zip, `${nb.title}.annanotes`, 'application/zip');
+  return trackTask(async () => {
+    await saveQueue.flush();
+    const { createBackup } = await loadBackup();
+    const zip = await createBackup('notebook', [nb.id]);
+    await saveFile(zip, `${nb.title}.annanotes`, 'application/zip');
+  });
 }
 
 export async function exportLibraryBackup(): Promise<void> {
-  await saveQueue.flush();
-  const { createBackup } = await loadBackup();
-  const zip = await createBackup('library');
-  await saveFile(zip, `AnnaNotes — резервная копия ${stamp()}.annanotes`, 'application/zip');
-  useSettings.getState().set('lastBackupAt', Date.now());
+  return trackTask(async () => {
+    await saveQueue.flush();
+    const { createBackup } = await loadBackup();
+    const zip = await createBackup('library');
+    await saveFile(zip, `AnnaNotes — резервная копия ${stamp()}.annanotes`, 'application/zip');
+    useSettings.getState().set('lastBackupAt', Date.now());
+  });
 }
 
 export async function readBackupFile(file: File): Promise<ParsedBackup> {
@@ -117,8 +128,10 @@ export async function readBackupFile(file: File): Promise<ParsedBackup> {
 }
 
 export async function applyBackup(parsed: ParsedBackup, mode: 'merge' | 'replace'): Promise<void> {
-  await saveQueue.flush();
-  const { restoreBackup } = await loadBackup();
-  const s = await restoreBackup(parsed, mode);
-  toast(`Восстановлено: ${s.notebooks} ${pluralRu(s.notebooks, 'документ', 'документа', 'документов')}, ${s.pages} ${pluralRu(s.pages, 'страница', 'страницы', 'страниц')}`, { kind: 'success' });
+  return trackTask(async () => {
+    await saveQueue.flush();
+    const { restoreBackup } = await loadBackup();
+    const s = await restoreBackup(parsed, mode);
+    toast(`Восстановлено: ${s.notebooks} ${pluralRu(s.notebooks, 'документ', 'документа', 'документов')}, ${s.pages} ${pluralRu(s.pages, 'страница', 'страницы', 'страниц')}`, { kind: 'success' });
+  });
 }

@@ -191,3 +191,122 @@
     -webkit-touch-callout: none;
   }
 }
+
+/* ---------------------------------------------------------------- Cozy & Love (4.3) */
+:root {
+  --love-ivory: #fff9f2;
+  --love-blush: #f6cad8;
+  --love-rose: #dfa3b7;
+  --love-lavender: #d7c8f0;
+  --love-sage: #c4d8be;
+  --love-cocoa: #80666d;
+  --love-heart: #d8577a;
+  --love-bubble-bg: rgba(255, 249, 242, 0.94);
+  --love-bubble-border: #f6cad8;
+  --love-bubble-text: #80666d;
+}
+.dark {
+  --love-heart: #f08da5;
+  --love-bubble-bg: rgba(48, 34, 42, 0.94);
+  --love-bubble-border: #6b4655;
+  --love-bubble-text: #f6cad8;
+}
+
+/* Heart Moment: a thin line draws the heart, it beats once, the phrase appears, all fades. */
+.heart-moment {
+  animation: heart-moment-out 0.9s ease-in 6.7s forwards;
+}
+.heart-moment__path {
+  stroke: var(--love-heart);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: heart-moment-draw 1.25s cubic-bezier(0.45, 0.05, 0.3, 1) 0.1s forwards;
+}
+.heart-moment__fill {
+  fill: var(--love-heart);
+  opacity: 0;
+  animation: heart-moment-fill 0.5s ease-out 1.2s forwards;
+}
+.heart-moment__heart {
+  transform-origin: 50% 60%;
+  animation: heart-moment-beat 0.7s cubic-bezier(0.3, 0, 0.3, 1) 1.35s both;
+}
+.heart-moment__text {
+  background: var(--love-bubble-bg);
+  border-color: var(--love-bubble-border);
+  color: var(--love-bubble-text);
+  opacity: 0;
+  transform: translateX(-6px);
+  animation: heart-moment-text 0.6s ease-out 1.75s forwards;
+}
+@keyframes heart-moment-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes heart-moment-fill {
+  to {
+    opacity: 0.22;
+  }
+}
+@keyframes heart-moment-beat {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.14);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes heart-moment-text {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes heart-moment-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .heart-moment__path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .heart-moment__fill {
+    animation: none;
+    opacity: 0.22;
+  }
+  .heart-moment__heart {
+    animation: none;
+  }
+  .heart-moment__text {
+    animation: heart-moment-text 0.3s ease-out forwards;
+  }
+}
+
+/* Secret message: warm ivory paper with a blush glow; readable in the dark theme too. */
+.secret-message {
+  background: radial-gradient(120% 90% at 50% 40%, var(--love-ivory) 0%, #fdeef2 60%, #f6dce6 100%);
+}
+.dark .secret-message {
+  background: radial-gradient(120% 90% at 50% 40%, #2b2028 0%, #22191f 65%, #1a1418 100%);
+}
+.secret-message__sub {
+  color: var(--love-cocoa);
+}
+.dark .secret-message__sub {
+  color: var(--love-blush);
+}
+.secret-message__close {
+  color: var(--love-cocoa);
+  background: rgba(255, 255, 255, 0.55);
+}
+.dark .secret-message__close {
+  color: var(--love-blush);
+  background: rgba(255, 255, 255, 0.08);
+}

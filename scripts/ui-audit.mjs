@@ -66,6 +66,14 @@ for (const size of sizes) {
     await report(`Инструмент: ${tool}`);
     await close();
   }
+  await p.getByTestId('tool-stickers').click();
+  await report('Стикеры');
+  await close();
+  await p.getByRole('button', { name: 'Ещё' }).click();
+  await p.getByRole('menuitem', { name: 'Обложка тетради' }).click();
+  await p.getByTestId('cover-preview').waitFor();
+  await report('Обложка');
+  await close();
   await p.getByTestId('export-menu').click();
   await report('Экспорт');
   await close();

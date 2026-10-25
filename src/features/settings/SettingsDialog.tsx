@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Activity, Download, HardDrive, Upload } from 'lucide-react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { getSetting, setSetting } from '@/db/repo';
+import { Activity, Download, HardDrive, Heart, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Slider, Switch } from '@/components/ui/controls';
@@ -13,6 +14,7 @@ import { exportLibraryBackup, readBackupFile } from '@/features/actions';
 import { RestoreDialog } from './RestoreDialog';
 import type { ParsedBackup } from '@/backup/backup';
 import { PressureTestPad } from './PressureTestPad';
+const SecretMessage = lazy(() => import('@/features/love/SecretMessage').then((m) => ({ default: m.SecretMessage })));
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const s = useSettings();
@@ -22,6 +24,21 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [restore, setRestore] = useState<ParsedBackup | null>(null);
+  const [secret, setSecret] = useState(false);
+  const taps = useRef<number[]>([]);
+
+  // Five taps in a row on the little heart (each within 1.5 s of the previous) open the secret.
+  const tapHeart = () => {
+    const now = Date.now();
+    const prev = taps.current;
+    taps.current = prev.length && now - prev[prev.length - 1]! <= 1500 ? [...prev, now] : [now];
+    if (taps.current.length >= 5) {
+      taps.current = [];
+      setSecret(true);
+      // EasterEggPreferences: when it was first found and how often it was opened.
+      void getSetting<{ discoveredAt: number; opened: number } | null>('easterEgg', null).then((p) => setSetting('easterEgg', { discoveredAt: p?.discoveredAt ?? Date.now(), opened: (p?.opened ?? 0) + 1 })).catch(() => {});
+    }
+  };
 
   useEffect(() => {
     if (!open || !navigator.storage?.estimate) return;
@@ -152,8 +169,22 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
               Диагностика PWA и хранилища
             </Button>
           </Section>
+          <Section title="О приложении">
+            <div className="flex items-center gap-2 text-[15px]">
+              <span className="font-semibold">Pencil Notes</span>
+              <button type="button" onClick={tapHeart} aria-label="Сердечко" className="-m-2 grid h-10 w-10 place-items-center rounded-full text-[var(--love-rose)] transition-transform active:scale-90" data-testid="about-heart">
+                <Heart className="h-4 w-4 fill-current" />
+              </button>
+            </div>
+            <p className="text-[13px] text-muted-foreground">Рукописные заметки и PDF. Работает без интернета, всё хранится только на этом устройстве.</p>
+          </Section>
         </DialogContent>
       </Dialog>
+      {secret && (
+        <Suspense fallback={null}>
+          <SecretMessage open onClose={() => setSecret(false)} />
+        </Suspense>
+      )}
       <RestoreDialog parsed={restore} onClose={() => setRestore(null)} />
     </>
   );

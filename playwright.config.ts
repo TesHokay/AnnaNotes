@@ -18,6 +18,7 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'chromium-ipad', use: { ...devices['iPad Pro 11'], browserName: 'chromium' } },
     { name: 'webkit-ipad', use: { ...devices['iPad Pro 11'] } },
   ],
 });

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { SelectionInfo, TextEditRequest, ViewInfo } from '@/engine/DrawingEngine';
-import type { Notebook, Page } from '@/model/types';
+import type { CanvasMenuInfo, SelectionInfo, TextEditRequest, ViewInfo } from '@/engine/DrawingEngine';
+import type { ImageElement, Notebook, Page } from '@/model/types';
 
 /**
  * UI-facing editor state. Updated by engine callbacks at low frequency (selection changes,
@@ -13,6 +13,8 @@ interface EditorState {
   selection: SelectionInfo | null;
   history: { canUndo: boolean; canRedo: boolean };
   textEdit: TextEditRequest | null;
+  contextMenu: CanvasMenuInfo | null;
+  imageEdit: { file: File } | { element: ImageElement } | null;
   pagesPanel: boolean;
   focusMode: boolean;
   /** bump to refresh thumbnails of a page */
@@ -27,6 +29,8 @@ const initial = {
   selection: null,
   history: { canUndo: false, canRedo: false },
   textEdit: null,
+  contextMenu: null,
+  imageEdit: null,
   pageVersions: {},
 };
 

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { BringToFront, Check, Copy, CopyPlus, FlipHorizontal2, FlipVertical2, Maximize2, Minus, Plus, Scissors, SendToBack, SlidersHorizontal, Trash2, Type } from 'lucide-react';
+import { BringToFront, Check, Crop, Copy, CopyPlus, FlipHorizontal2, FlipVertical2, Maximize2, Minus, Plus, Scissors, SendToBack, SlidersHorizontal, Trash2, Type } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ColorSwatch, Input, Label, Slider } from '@/components/ui/controls';
 import type { SelectionInfo } from '@/engine/DrawingEngine';
@@ -16,6 +16,7 @@ import { TextOptions } from './Toolbar';
 /** Floating actions for the lasso selection, positioned above (or below) the selection box. */
 export function SelectionBar() {
   const sel = useEditor((s) => s.selection);
+  const menu = useEditor((s) => s.contextMenu);
   const session = useSession();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -28,22 +29,28 @@ export function SelectionBar() {
     let top = r.y - bar.height - 44;
     if (top < 8) top = r.y + r.height + 16;
     if (top + bar.height > parent.height - 8) top = Math.max(8, parent.height - bar.height - 72);
-    const left = Math.min(Math.max(8, r.x + r.width / 2 - bar.width / 2), parent.width - bar.width - 8);
+    const left = Math.max(8, Math.min(r.x + r.width / 2 - bar.width / 2, parent.width - bar.width - 8));
     setPos({ left, top });
-  }, [sel]);
+  }, [sel, menu]);
 
-  if (!sel) return null;
+  if (!sel || menu) return null;
   const e = session.engine;
   return (
     <div
       ref={ref}
-      className="glass absolute z-10 flex items-center gap-0.5 rounded-full border p-1 shadow-float"
+      className="glass absolute z-10 flex max-w-[calc(100%-16px)] items-center gap-0.5 overflow-x-auto rounded-full border p-1 shadow-float [&>button]:shrink-0"
       style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999 }}
       onPointerDown={(ev) => ev.stopPropagation()}
       data-testid="selection-bar"
     >
       {sel.shape && <ShapeStylePopover shape={sel.shape} />}
       {sel.image && <ImageStylePopover image={sel.image} />}
+      {sel.image && !sel.image.sticker && (
+        <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="Обрезать фото" title="Обрезать фото" onClick={() => {
+          const element = e?.getSelectedImage();
+          if (element) useEditor.setState({ imageEdit: { element } });
+        }}><Crop className="h-4 w-4" /></Button>
+      )}
       {(sel.shape || sel.image) && (
         <>
           <Button variant="ghost" size="icon-sm" className="rounded-full" aria-label="На передний план" title="На передний план" onClick={() => e?.arrangeSelection('front')}>

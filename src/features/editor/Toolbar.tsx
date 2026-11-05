@@ -25,16 +25,14 @@ import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/compon
 import { Button } from '@/components/ui/button';
 import type { ToolKind } from '@/engine/tools';
 import { FONT_LABELS } from '@/engine/text';
-import { putAsset } from '@/db/repo';
 import { useSession } from '@/editor/session';
+import { useEditor } from '@/store/editor';
 import { pickFiles } from '@/lib/files';
-import { prepareImage } from '@/lib/images';
 import { cn } from '@/lib/utils';
 import type { FontFamilyKey, ShapeElementKind, TextAlign } from '@/model/types';
 import { PenOptions } from './PenOptions';
 import { StickerStudio } from '@/features/stickers/StickerStudio';
 import { HIGHLIGHTER_COLORS, PEN_COLORS, SHAPE_FILLS, useSettings, type ToolSettings } from '@/store/settings';
-import { errorMessage, toast } from '@/store/ui';
 
 const TOOLS: { tool: ToolKind; icon: typeof PenTool; label: string; key: string }[] = [
   { tool: 'pen', icon: PenTool, label: 'Ручка', key: 'P' },
@@ -102,7 +100,6 @@ export const Toolbar = memo(function Toolbar({ compact }: { compact?: boolean })
   const tools = useSettings((s) => s.tools);
   const quickColors = useSettings((s) => s.quickPenColors);
   const update = useSettings((s) => s.updateTools);
-  const session = useSession();
   const [optionsFor, setOptionsFor] = useState<ToolKind | null>(null);
   const [stickers, setStickers] = useState(false);
 
@@ -117,14 +114,7 @@ export const Toolbar = memo(function Toolbar({ compact }: { compact?: boolean })
   const insertImage = async () => {
     const [file] = await pickFiles('image/png,image/jpeg,.png,.jpg,.jpeg');
     if (!file) return;
-    try {
-      const img = await prepareImage(file);
-      const asset = await putAsset(img.blob, 'image', file.name, { width: img.width, height: img.height });
-      update((t) => ({ ...t, tool: 'lasso' }));
-      session.engine?.insertImage(asset.id, img.width, img.height);
-    } catch (err) {
-      toast(errorMessage(err), { kind: 'error' });
-    }
+    useEditor.setState({ imageEdit: { file } });
   };
 
   const color = currentColor(tools);

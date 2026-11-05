@@ -58,3 +58,10 @@ export async function waitSaved(page: Page): Promise<void> {
   await page.waitForTimeout(100);
   await expect(page.getByTestId('save-status')).toHaveAttribute('data-status', /saved|idle/, { timeout: 10_000 });
 }
+
+/** Open the responsive library drawer before selecting a section on tablets. */
+export async function openLibrarySection(page: Page, name: string): Promise<void> {
+  const menu = page.getByRole('button', { name: 'Меню', exact: true });
+  if (await menu.isVisible()) await menu.click();
+  await page.getByRole('navigation', { name: 'Разделы', exact: true }).getByRole('button', { name, exact: true }).click();
+}

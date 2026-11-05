@@ -16,7 +16,7 @@ export function useEditorShortcuts(): void {
   const session = useSession();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e)) return;
+      if (isTyping(e) || document.querySelector('[role="dialog"], [role="menu"]')) return;
       const engine = session.engine;
       if (!engine) return;
       const mod = e.metaKey || e.ctrlKey;

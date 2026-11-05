@@ -41,6 +41,8 @@ import { useEditor } from '@/store/editor';
 import { useSettings } from '@/store/settings';
 import { errorMessage, navigate, toast, useUI } from '@/store/ui';
 import { CanvasHost } from './CanvasHost';
+import { CanvasContextMenu } from './CanvasContextMenu';
+import { ImageCropDialog } from './ImageCropDialog';
 import { PageSettingsDialog } from './PageSettingsDialog';
 import { PagesPanel } from './PagesPanel';
 import { PerfOverlay, SelectionBar, TextEditorOverlay, ZoomControls } from './overlays';
@@ -133,6 +135,8 @@ function EditorLayout() {
         {pagesPanel && !focusMode && !compact && <PagesPanel />}
         <div className="relative min-w-0 flex-1 overflow-hidden">
           <CanvasHost />
+          <CanvasContextMenu />
+          <ImageCropDialog />
           <SelectionBar />
           <TextEditorOverlay />
           <ZoomControls />

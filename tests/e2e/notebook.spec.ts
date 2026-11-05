@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { countStore, createNotebook, drawStroke, openFresh, waitSaved } from './helpers';
+import { countStore, createNotebook, drawStroke, openFresh, openLibrarySection, waitSaved } from './helpers';
 
 test.describe('notebooks', () => {
   test('create, draw, save, reload — the stroke persists', async ({ page }) => {
@@ -84,11 +84,11 @@ test.describe('notebooks', () => {
     await page.getByRole('button', { name: 'Действия: Чистовик' }).click();
     await page.getByRole('menuitem', { name: 'В корзину' }).click();
     await expect(page.getByTestId('notebook-item')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Корзина' }).first().click({ force: true });
+    await openLibrarySection(page, 'Корзина');
     await page.getByRole('button', { name: 'Действия: Чистовик' }).click();
     await page.getByRole('menuitem', { name: 'Восстановить' }).click();
     await expect(page.getByTestId('notebook-item')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Все документы' }).first().click({ force: true });
+    await openLibrarySection(page, 'Все документы');
     await expect(page.getByTestId('notebook-item')).toHaveCount(1);
   });
 });

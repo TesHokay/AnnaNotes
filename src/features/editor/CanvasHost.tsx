@@ -32,6 +32,7 @@ export function CanvasHost() {
       stylusOnly: settings.stylusOnly,
       textRuns: session.getTextRuns,
       callbacks: {
+        onContextMenu: (contextMenu) => useEditor.setState({ contextMenu }),
         onViewChange: (view) => useEditor.setState({ view }),
         onSelectionChange: (selection) => useEditor.setState({ selection }),
         onHistoryChange: (history) => {

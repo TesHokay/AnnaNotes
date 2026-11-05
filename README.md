@@ -25,6 +25,8 @@ npx playwright install chromium webkit   # один раз
 npm run test:e2e     # E2E-тесты (Playwright), сами собирают и запускают preview
 ```
 
+Браузерные проверки запускаются в настольном Chromium, сенсорном Chromium с профилем iPad и WebKit. Если WebKit для Windows не поддерживает запись Blob в IndexedDB, тест сохранения фото пропускается после проверки этой возможности; остальные сценарии выполняются. Проверка на настоящем iPad описана в [IPAD_TEST_CHECKLIST.md](IPAD_TEST_CHECKLIST.md).
+
 ### Как проверить на iPad до деплоя
 
 Service worker (офлайн-режим и установка) работает только по **HTTPS** или на `localhost`. Поэтому:

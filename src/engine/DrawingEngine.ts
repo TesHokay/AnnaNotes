@@ -1,5 +1,6 @@
 import { uuid } from '@/lib/id';
 import { paperKey } from '@/model/cutePaper';
+import { croppedImageElement, type CropRect } from '@/lib/imageCrop';
 import type { BBox, ImageElement, Page, PageElement, ShapeElement, TextElement, UUID } from '@/model/types';
 import { BoxResizeAction, drawOrientedFrame, hitBoxHandles, isBoxElement, type BoxElement } from './boxEdit';
 
@@ -60,7 +61,14 @@ export interface ViewInfo {
   pageCount: number;
 }
 
+export interface CanvasMenuInfo {
+  pageId: UUID;
+  screen: Vec;
+  point: Vec;
+}
+
 export interface EngineCallbacks {
+  onContextMenu?(menu: CanvasMenuInfo | null): void;
   onViewChange?(v: ViewInfo): void;
   onSelectionChange?(s: SelectionInfo | null): void;
   onHistoryChange?(h: { canUndo: boolean; canRedo: boolean }): void;
@@ -196,6 +204,8 @@ export class DrawingEngine {
   private editingText: { element: TextElement; isNew: boolean } | null = null;
 
   private action: { a: Action; pointerId: number; pointerType: string; startedAt: number } | null = null;
+  private longPress: { pointerId: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  private contextPointerId: number | null = null;
   private textTap: { pointerId: number; pageId: UUID; local: Vec; screen: Vec } | null = null;
   private pointers = new Map<number, PointerInfo>();
   private gesture: Gesture | null = null;
@@ -434,15 +444,16 @@ export class DrawingEngine {
     this.insertCopies(this.selectedElements(), sel.pageId, { x: 16, y: 16 }, 'Дублирование');
   }
 
-  paste(): void {
-    const pageId = this.selection?.pageId ?? this.currentPageId();
+  paste(target?: Pick<CanvasMenuInfo, 'pageId' | 'point'>): void {
+    const pageId = target?.pageId ?? this.selection?.pageId ?? this.currentPageId();
     if (!pageId || !clipboard.length || !this.model.isLoaded(pageId)) return;
     const samePage = clipboard[0]!.pageId === pageId;
-    this.insertCopies(clipboard, pageId, samePage ? { x: 16, y: 16 } : { x: 0, y: 0 }, 'Вставка');
+    const bounds = selectionBBox(clipboard);
+    const offset = target ? { x: target.point.x - bounds.minX, y: target.point.y - bounds.minY } : samePage ? { x: 16, y: 16 } : { x: 0, y: 0 };
+    this.insertCopies(clipboard, pageId, offset, 'Вставка');
   }
 
-  selectAll(): void {
-    const pageId = this.currentPageId();
+  selectAll(pageId = this.currentPageId()): void {
     if (!pageId) return;
     const els = this.model.getElements(pageId) ?? [];
     this.setSelection(els.length ? { pageId, ids: els.map((e) => e.id), bbox: selectionBBox(els) } : null);
@@ -490,6 +501,22 @@ export class DrawingEngine {
     this.setSelection({ pageId: page.id, ids: [el.id], bbox: selectionBBox([el]) });
   }
 
+  getSelectedImage(): ImageElement | null {
+    const els = this.selectedElements();
+    return els.length === 1 && els[0]!.type === 'image' ? els[0]! : null;
+  }
+
+  /** A new asset keeps the original photo available to undo and other copies. */
+  cropImage(original: ImageElement, assetId: UUID, crop: CropRect): boolean {
+    const current = this.model.getElements(original.pageId)?.find((e) => e.id === original.id);
+    if (current !== original) return false;
+    const updated = croppedImageElement(original, assetId, crop);
+    void this.images.load(assetId);
+    this.model.apply({ removed: [original], added: [updated] }, { history: 'Обрезка фото', persist: true });
+    this.setSelection({ pageId: original.pageId, ids: [original.id], bbox: selectionBBox([updated]) });
+    return true;
+  }
+
   // ---------------------------------------------------------------- text editing
 
   /** Called by the UI when the inline editor closes. */
@@ -530,11 +557,13 @@ export class DrawingEngine {
 
   /** Free cached bitmaps (e.g. when the app goes to the background on iOS). */
   releaseCaches(): void {
+    this.cancelLongPress();
     for (const id of [...this.caches.keys()]) this.dropCache(id);
     this.requestRender(true, false);
   }
 
   destroy(): void {
+    this.cancelLongPress();
     cancelAnimationFrame(this.frameId);
     if (this.prefetchHandle) {
       if (typeof cancelIdleCallback === 'function') cancelIdleCallback(this.prefetchHandle);
@@ -675,7 +704,13 @@ export class DrawingEngine {
       this.requestRender(false, true);
     });
     on(o, 'wheel', (e: WheelEvent) => this.onWheel(e), { passive: false });
-    on(o, 'contextmenu', (e: Event) => e.preventDefault());
+    on(o, 'contextmenu', (e: MouseEvent) => {
+      e.preventDefault();
+      if (this.contextPointerId !== null || this.action || this.gesture?.kind === 'pinch') return;
+      this.rect = this.container.getBoundingClientRect();
+      this.showContextMenu(this.screenPoint(e));
+    });
+    on(window, 'blur', () => this.cancelLongPress());
     // iOS Safari: prevent the magnifier loupe, callouts and native scroll/zoom from touches on the canvas.
     on(o, 'touchstart', (e: TouchEvent) => e.preventDefault(), { passive: false });
     // Safety net: touch events carry the authoritative list of fingers. When the last finger
@@ -752,6 +787,7 @@ export class DrawingEngine {
 
   /** Forget all tracked touch pointers and any touch gesture (stale state recovery). */
   private resetTouches(): void {
+    if (this.longPress && this.pointers.get(this.longPress.pointerId)?.type === 'touch') this.cancelLongPress();
     let changed = false;
     for (const [id, p] of [...this.pointers]) {
       if (p.type !== 'touch') continue;
@@ -783,6 +819,46 @@ export class DrawingEngine {
     this.callbacks.onInteractionChange?.(active);
   }
 
+  private cancelLongPress(): void {
+    if (this.longPress) clearTimeout(this.longPress.timer);
+    this.longPress = null;
+  }
+
+  private armLongPress(e: PointerEvent, screen: Vec): void {
+    this.cancelLongPress();
+    if (e.pointerType === 'pen' || e.button !== 0 || this.spacePan || this.pointers.size !== 1) return;
+    this.longPress = {
+      pointerId: e.pointerId,
+      timer: setTimeout(() => {
+        this.longPress = null;
+        if (!this.pointers.has(e.pointerId)) return;
+        this.action?.a.abort();
+        this.action = null;
+        this.textTap = null;
+        this.tapCandidate = null;
+        this.setInteracting(false);
+        this.endGesture(false);
+        this.contextPointerId = e.pointerId;
+        this.showContextMenu(screen);
+        this.requestRender(true, true);
+      }, 550),
+    };
+  }
+
+  private showContextMenu(screen: Vec): void {
+    const doc = this.viewport.toDoc(screen);
+    const slot = slotAt(this.layout, doc);
+    if (!slot || !this.model.isLoaded(slot.id) || this.editingText) return;
+    const point = { x: doc.x - slot.x, y: doc.y - slot.y };
+    const hit = hitTestElement(this.model.getElements(slot.id) ?? [], point, 6 / this.viewport.scale);
+    if (hit) {
+      if (this.selection?.pageId !== slot.id || !this.selection.ids.includes(hit.id)) {
+        this.setSelection({ pageId: slot.id, ids: [hit.id], bbox: selectionBBox([hit]) });
+      }
+    } else this.setSelection(null);
+    this.callbacks.onContextMenu?.({ pageId: slot.id, screen, point });
+  }
+
   private onPointerDown(e: PointerEvent): void {
     e.preventDefault();
     this.rect = this.container.getBoundingClientRect();
@@ -803,6 +879,7 @@ export class DrawingEngine {
       this.action.a.abort();
       this.action = null;
     }
+    this.callbacks.onContextMenu?.(null);
     const sp = this.screenPoint(e);
     this.pointers.set(e.pointerId, { type, x: sp.x, y: sp.y, startX: sp.x, startY: sp.y, t: performance.now() });
     try {
@@ -811,8 +888,10 @@ export class DrawingEngine {
       /* capture can fail for synthetic events */
     }
 
+    this.armLongPress(e, sp);
     if (type === 'mouse') {
-      if (e.button === 1 || e.button === 2 || this.spacePan) {
+      if (e.button === 2) return;
+      if (e.button === 1 || this.spacePan) {
         this.startPan(e.pointerId, sp);
         return;
       }
@@ -836,6 +915,7 @@ export class DrawingEngine {
         return;
       }
       if (this.stylusOnly) {
+        if (this.trySelectionAction(e, sp)) return;
         this.startPan(e.pointerId, sp);
         return;
       }
@@ -844,11 +924,9 @@ export class DrawingEngine {
     this.startAction(e, sp);
   }
 
-  private startAction(e: PointerEvent, sp: Vec): void {
+  private trySelectionAction(e: PointerEvent, sp: Vec): boolean {
     const doc = this.viewport.toDoc(sp);
-    const tool = this.config.tool;
     const scale = this.viewport.scale;
-
     if (this.selection) {
       const slot = this.slotOf(this.selection.pageId);
       if (slot) {
@@ -858,21 +936,30 @@ export class DrawingEngine {
           const hit = hitBoxHandles(box, local, scale);
           if (hit?.kind === 'resize') {
             this.beginAction(new BoxResizeAction(this.context(), box, hit.handle, this.makeSample(e, slot)), e);
-            return;
+            return true;
           }
           if (hit) {
             this.beginAction(new TransformAction(this.context(), this.selection, hit.kind === 'rotate' ? 'rotate' : 'move', this.makeSample(e, slot)), e);
-            return;
+            return true;
           }
         }
         const handle = box ? null : hitSelectionHandle(this.selection, local, scale);
         if (handle) {
           this.beginAction(new TransformAction(this.context(), this.selection, handle, this.makeSample(e, slot)), e);
-          return;
+          return true;
         }
       }
-      this.setSelection(null);
     }
+
+    return false;
+  }
+
+  private startAction(e: PointerEvent, sp: Vec): void {
+    const doc = this.viewport.toDoc(sp);
+    const tool = this.config.tool;
+
+    if (this.trySelectionAction(e, sp)) return;
+    this.setSelection(null);
 
     const slot = slotAt(this.layout, doc);
     if (!slot) {
@@ -924,6 +1011,7 @@ export class DrawingEngine {
       }
       return;
     }
+    if (this.longPress?.pointerId === e.pointerId && Math.hypot(sp.x - info.startX, sp.y - info.startY) > 8) this.cancelLongPress();
     info.x = sp.x;
     info.y = sp.y;
     if (this.tapCandidate && Math.hypot(sp.x - info.startX, sp.y - info.startY) > 10) this.tapCandidate.moved = true;
@@ -951,6 +1039,8 @@ export class DrawingEngine {
   }
 
   private onPointerUp(e: PointerEvent, cancelled: boolean): void {
+    if (this.longPress?.pointerId === e.pointerId) this.cancelLongPress();
+    if (this.contextPointerId === e.pointerId) this.contextPointerId = null;
     const info = this.pointers.get(e.pointerId);
     if (!info) return;
     this.pointers.delete(e.pointerId);
@@ -1109,6 +1199,8 @@ export class DrawingEngine {
   }
 
   private onWheel(e: WheelEvent): void {
+    this.cancelLongPress();
+    this.callbacks.onContextMenu?.(null);
     e.preventDefault();
     const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? this.viewport.height : 1;
     const sp = this.screenPoint(e);

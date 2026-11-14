@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { rememberNotebookPage } from '@/db/repo';
 import { DrawingEngine } from '@/engine/DrawingEngine';
 import { setEditorBusyProbe } from '@/editor/busy';
 import { useSession } from '@/editor/session';
@@ -24,6 +25,17 @@ export function CanvasHost() {
     if (!el) return;
     const settings = useSettings.getState();
     const versionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    let rememberedPageId = session.notebook.lastPageId;
+    const rememberPage = () => {
+      const pageId = engine.currentPageId();
+      if (!pageId || pageId === rememberedPageId) return;
+      rememberedPageId = pageId;
+      session.notebook.lastPageId = pageId;
+      void rememberNotebookPage(session.notebook.id, pageId).catch(() => {
+        // Retry on the next view change or when leaving the editor.
+        if (rememberedPageId === pageId) rememberedPageId = undefined;
+      });
+    };
     const engine = new DrawingEngine(el, {
       model: session.model,
       images: session.images,
@@ -33,7 +45,10 @@ export function CanvasHost() {
       textRuns: session.getTextRuns,
       callbacks: {
         onContextMenu: (contextMenu) => useEditor.setState({ contextMenu }),
-        onViewChange: (view) => useEditor.setState({ view }),
+        onViewChange: (view) => {
+          useEditor.setState({ view });
+          rememberPage();
+        },
         onSelectionChange: (selection) => useEditor.setState({ selection }),
         onHistoryChange: (history) => {
           const cur = useEditor.getState().history;
@@ -57,7 +72,11 @@ export function CanvasHost() {
     if (import.meta.env.DEV) (window as unknown as { __engine?: DrawingEngine }).__engine = engine;
     engine.setCanvasColor(readCanvasColor());
     const pages = useEditor.getState().pages;
-    if (pages.length) engine.setPages(pages);
+    if (pages.length) {
+      engine.setPages(pages);
+      const index = pages.findIndex((page) => page.id === session.notebook.lastPageId);
+      if (index >= 0) engine.scrollToPage(index);
+    }
     setEditorBusyProbe(() => engine.isInteracting);
 
     const unsubSettings = useSettings.subscribe((s, prev) => {
@@ -70,14 +89,20 @@ export function CanvasHost() {
     mq.addEventListener('change', onScheme);
     // iOS kills background PWAs that hold a lot of memory: drop bitmaps while hidden.
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') engine.releaseCaches();
+      if (document.visibilityState === 'hidden') {
+        rememberPage();
+        engine.releaseCaches();
+      }
     };
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', rememberPage);
 
     return () => {
+      rememberPage();
       unsubSettings();
       mq.removeEventListener('change', onScheme);
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', rememberPage);
       for (const t of versionTimers.values()) clearTimeout(t);
       setEditorBusyProbe(() => false);
       engine.destroy();

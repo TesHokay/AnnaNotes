@@ -55,6 +55,8 @@ export interface Notebook {
   createdAt: number;
   updatedAt: number;
   openedAt: number;
+  /** Last viewed page id, stable across page reordering. */
+  lastPageId?: UUID;
   /** Soft delete timestamp; 0 = not deleted. Numbers (not null) so the field can be indexed. */
   deletedAt: number;
   pageCount: number;

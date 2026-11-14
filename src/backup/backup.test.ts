@@ -4,7 +4,7 @@ import { strToU8, zipSync, unzipSync, strFromU8 } from 'fflate';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createBackup, parseBackup, restoreBackup } from './backup';
 import { BackupValidationError, validateManifest, BACKUP_FORMAT } from './format';
-import { addStickerAsset, createFolder, createNotebook, listPages, putAsset, saveCover } from '@/db/repo';
+import { addStickerAsset, createFolder, createNotebook, listPages, putAsset, rememberNotebookPage, saveCover } from '@/db/repo';
 import { useTestDB, makeStroke, pts } from '@/test/helpers';
 import type { PencilNotesDB } from '@/db/db';
 import { uuid } from '@/lib/id';
@@ -30,7 +30,8 @@ describe('backup', () => {
   });
 
   it('round-trips a library backup in merge mode with fresh ids and intact binary assets', async () => {
-    const { nb, stroke, asset } = await seed(db);
+    const { nb, page, stroke, asset } = await seed(db);
+    await rememberNotebookPage(nb.id, page.id);
     const zip = await createBackup('library');
     const parsed = parseBackup(zip);
     expect(parsed.manifest.version).toBe(2);
@@ -40,6 +41,8 @@ describe('backup', () => {
     expect(await db.elements.count()).toBe(4);
     const copies = (await db.notebooks.toArray()).filter((n) => n.id !== nb.id);
     expect(copies[0]!.title).toBe('Физика');
+    expect(copies[0]!.lastPageId).toBe((await listPages(copies[0]!.id))[0]!.id);
+    expect(copies[0]!.lastPageId).not.toBe(page.id);
     expect(copies[0]!.folderId).not.toBeNull();
     expect(await db.elements.get(stroke.id)).toBeDefined();
     const images = (await db.elements.toArray()).filter((e) => e.type === 'image');
@@ -49,12 +52,14 @@ describe('backup', () => {
   });
 
   it('replace mode restores original ids after wiping the library', async () => {
-    const { nb, stroke } = await seed(db);
+    const { nb, page, stroke } = await seed(db);
+    await rememberNotebookPage(nb.id, page.id);
     const zip = await createBackup('notebook', [nb.id]);
     await createNotebook({ title: 'Другое' });
     await restoreBackup(parseBackup(zip), 'replace');
     expect(await db.notebooks.count()).toBe(1);
     expect((await db.notebooks.get(nb.id))!.title).toBe('Физика');
+    expect((await db.notebooks.get(nb.id))!.lastPageId).toBe(page.id);
     expect(await db.elements.get(stroke.id)).toBeDefined();
   });
 

@@ -133,6 +133,13 @@ export function markOpened(id: UUID): Promise<void> {
   });
 }
 
+/** Remember navigation without marking the document content as modified. */
+export function rememberNotebookPage(id: UUID, pageId: UUID): Promise<void> {
+  return guard(async () => {
+    await getDB().notebooks.update(id, { lastPageId: pageId });
+  });
+}
+
 export function setFavorite(ids: UUID[], favorite: boolean): Promise<void> {
   return guard(async () => {
     await getDB().notebooks.where('id').anyOf(ids).modify({ favorite: favorite ? 1 : 0 });
@@ -222,6 +229,7 @@ export function duplicateNotebook(id: UUID): Promise<Notebook> {
       });
       const els = await db.elements.where('notebookId').equals(id).toArray();
       const newEls = els.map((e) => ({ ...e, id: uuid(), notebookId: copy.id, pageId: pageMap.get(e.pageId) ?? e.pageId }));
+      copy.lastPageId = src.lastPageId ? pageMap.get(src.lastPageId) : undefined;
       await db.notebooks.add(copy);
       await db.pages.bulkAdd(newPages);
       await db.elements.bulkAdd(newEls);

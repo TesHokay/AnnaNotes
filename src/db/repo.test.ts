@@ -17,6 +17,7 @@ import {
   movePage,
   moveNotebooks,
   putAsset,
+  rememberNotebookPage,
   restoreNotebooks,
   trashNotebooks,
 } from './repo';
@@ -60,6 +61,20 @@ describe('repository', () => {
     await deletePage(p2.id);
     expect(await db.elements.where('pageId').equals(p2.id).count()).toBe(0);
     expect((await db.notebooks.get(nb.id))!.pageCount).toBe(3);
+  });
+
+  it('keeps the reading position when reordering and duplicating a notebook', async () => {
+    const nb = await createNotebook({ title: 'Reading' });
+    const [first] = await listPages(nb.id);
+    const second = await addPage(nb.id, first!.id, DEFAULT_SETUP);
+    const before = (await db.notebooks.get(nb.id))!;
+    await rememberNotebookPage(nb.id, second.id);
+    expect(await db.notebooks.get(nb.id)).toMatchObject({ lastPageId: second.id, updatedAt: before.updatedAt });
+    await movePage(nb.id, second.id, 0);
+    expect((await db.notebooks.get(nb.id))!.lastPageId).toBe(second.id);
+    const copy = await duplicateNotebook(nb.id);
+    expect(copy.lastPageId).toBe((await listPages(copy.id))[0]!.id);
+    expect(copy.lastPageId).not.toBe(second.id);
   });
 
   it('refuses to delete the last page', async () => {

@@ -37,6 +37,61 @@ test.describe('notebooks', () => {
     expect(await countStore(page, 'pages')).toBe(2);
   });
 
+  test('restores the last viewed page separately for each notebook after reopening and reload', async ({ page }) => {
+    await openFresh(page);
+    await createNotebook(page, 'Первая книга');
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 1');
+    await page.getByRole('button', { name: 'Добавить страницу' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 2');
+    await page.getByRole('button', { name: 'Добавить страницу' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('3 / 3');
+    await page.getByTestId('page-indicator').click();
+    await page.getByRole('spinbutton', { name: 'Номер страницы' }).fill('2');
+    await page.getByRole('button', { name: 'Перейти', exact: true }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 3');
+    await page.getByTestId('back').click();
+
+    await createNotebook(page, 'Вторая книга');
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 1');
+    await page.getByRole('button', { name: 'Добавить страницу' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 2');
+    await page.getByTestId('back').click();
+    await page.getByTestId('notebook-item').filter({ hasText: 'Первая книга' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 3');
+    await page.reload();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 3');
+    await page.getByTestId('back').click();
+    await page.getByTestId('notebook-item').filter({ hasText: 'Вторая книга' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 2');
+
+    // Scrolling updates the position, including a return to the first page.
+    // Mobile WebKit's driver cannot send mouse wheel input; dispatch the canvas event directly.
+    await page.getByTestId('drawing-surface').dispatchEvent('wheel', { deltaY: -2500 });
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 2');
+    await page.reload();
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 2');
+  });
+
+  test('preserves the viewed page after reordering and handles deletion', async ({ page }) => {
+    await openFresh(page);
+    await createNotebook(page, 'Порядок страниц');
+    await page.getByRole('button', { name: 'Добавить страницу' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('2 / 2');
+    const panel = page.getByRole('complementary', { name: 'Страницы' });
+    if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Страницы', exact: true }).click();
+    await page.getByRole('button', { name: 'Действия со страницей 2', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Переместить выше' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 2');
+    await page.reload();
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 2');
+    if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Страницы', exact: true }).click();
+    await page.getByRole('button', { name: 'Действия со страницей 1', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Удалить страницу' }).click();
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 1');
+    await page.reload();
+    await expect(page.getByTestId('page-indicator')).toHaveText('1 / 1');
+  });
+
   test('eraser removes strokes and lasso deletes a selection', async ({ page }) => {
     await openFresh(page);
     await createNotebook(page, 'Ластик');

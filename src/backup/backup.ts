@@ -136,6 +136,7 @@ export async function restoreBackup(parsed: ParsedBackup, mode: 'merge' | 'repla
   const notebooks: Notebook[] = m.notebooks.map((n) => ({
     ...n,
     id: remap(n.id),
+    lastPageId: n.lastPageId ? remap(n.lastPageId) : undefined,
     folderId: n.folderId && folderIds.has(n.folderId) ? remap(n.folderId) : null,
     favorite: n.favorite ? 1 : 0,
     deletedAt: n.deletedAt || 0,

@@ -35,9 +35,13 @@ test('import PDF → annotate → export annotated PDF', async ({ page }) => {
   await waitSaved(page);
   expect(await countStore(page, 'elements')).toBe(1);
 
-  // Reopen after reload: the PDF comes from IndexedDB, not the network.
+  // Reopen at the last viewed PDF page; the file comes from IndexedDB.
+  await page.getByTestId('page-indicator').click();
+  await page.getByRole('spinbutton', { name: 'Номер страницы' }).fill('3');
+  await page.getByRole('button', { name: 'Перейти', exact: true }).click();
+  await expect(page.getByTestId('page-indicator')).toHaveText('3 / 3');
   await page.reload();
-  await expect(page.getByTestId('page-indicator')).toHaveText('1 / 3');
+  await expect(page.getByTestId('page-indicator')).toHaveText('3 / 3');
 
   const download = page.waitForEvent('download');
   await page.getByTestId('export-menu').click();
